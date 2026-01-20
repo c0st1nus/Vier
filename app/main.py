@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.core.config import settings
+from app.db import close_db, close_redis, init_db
+from app.services.storage_service import storage_service
 
 # Configure logging
 logging.basicConfig(
@@ -36,6 +38,27 @@ async def lifespan(app: FastAPI):
     logger.info(f"Device: {settings.DEVICE}")
     logger.info("=" * 60)
 
+    # Initialize database
+    try:
+        logger.info("Initializing database...")
+        await init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        raise
+
+    # Initialize S3/MinIO storage
+    try:
+        if settings.S3_ENABLED:
+            logger.info("Initializing S3/MinIO storage...")
+            await storage_service.initialize()
+            logger.info("S3/MinIO storage initialized successfully")
+        else:
+            logger.info("S3 storage disabled, using local file storage")
+    except Exception as e:
+        logger.error(f"Failed to initialize S3 storage: {e}")
+        logger.warning("Falling back to local file storage")
+
     # Check CUDA availability
     import torch
 
@@ -52,6 +75,14 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down API")
     logger.info("Cleaning up resources...")
+
+    # Close database connections
+    try:
+        await close_db()
+        await close_redis()
+        logger.info("Database and Redis connections closed")
+    except Exception as e:
+        logger.error(f"Error closing connections: {e}")
 
     # Clean up old tasks
     try:
@@ -79,6 +110,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Accept-Ranges", "Content-Range", "Content-Length", "Content-Type"],
 )
 
 # Include routers

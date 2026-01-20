@@ -1,3 +1,6 @@
 .venv
 models
 *.log
+.env
+node_modules
+dist

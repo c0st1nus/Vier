@@ -1,0 +1,417 @@
+/* Processing Page Styles */
+.processing-page {
+    min-height: calc(100vh - 120px);
+    padding: var(--spacing-2xl) 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+}
+
+.processing-container {
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+    animation: fadeIn var(--transition-slow);
+}
+
+/* Progress Circle */
+.progress-circle-container {
+    position: relative;
+    width: 200px;
+    height: 200px;
+    margin: 0 auto var(--spacing-xl);
+}
+
+.progress-circle {
+    transform: rotate(-90deg);
+}
+
+.progress-circle-bg {
+    stroke: var(--gray-200);
+}
+
+.progress-circle-fill {
+    stroke: url(#gradient);
+    transition: stroke-dashoffset 0.5s ease;
+}
+
+/* Add gradient definition */
+.progress-circle-fill {
+    stroke: var(--primary);
+}
+
+.progress-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+}
+
+.progress-icon {
+    color: var(--primary);
+    margin-bottom: var(--spacing-sm);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.progress-percentage {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+/* Status Information */
+.status-info {
+    text-align: center;
+    margin-bottom: var(--spacing-xl);
+    padding: var(--spacing-xl);
+    background: var(--bg-primary);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lg);
+}
+
+.status-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-xs);
+}
+
+.dots {
+    display: inline-block;
+    width: 30px;
+    text-align: left;
+}
+
+.status-description {
+    font-size: 1rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+/* Progress Bar */
+.progress-bar-container {
+    background: var(--bg-primary);
+    padding: var(--spacing-xl);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.progress-bar {
+    width: 100%;
+    height: 12px;
+    background: var(--gray-200);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+    margin-bottom: var(--spacing-md);
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary) 0%, var(--primary-light) 100%);
+    border-radius: var(--radius-full);
+    transition: width 0.5s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.3) 50%,
+        transparent 100%
+    );
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.progress-text {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.progress-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+}
+
+.progress-value {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--primary);
+}
+
+/* Task Info */
+.task-info {
+    background: var(--bg-primary);
+    padding: var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    margin-bottom: var(--spacing-xl);
+    text-align: center;
+}
+
+.task-id-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+.task-id-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.task-id {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--gray-100);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--primary);
+    user-select: all;
+}
+
+.task-hint {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    margin: 0;
+}
+
+/* Processing Steps */
+.processing-steps {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin-bottom: var(--spacing-xl);
+    padding: var(--spacing-xl);
+    background: var(--bg-primary);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+}
+
+.step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
+    opacity: 0.4;
+    transition: all var(--transition-base);
+}
+
+.step.active {
+    opacity: 1;
+}
+
+.step.completed .step-icon {
+    background: var(--success);
+    color: white;
+}
+
+.step-icon {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--gray-200);
+    color: var(--gray-500);
+    border-radius: var(--radius-full);
+    transition: all var(--transition-base);
+}
+
+.step.active .step-icon {
+    background: var(--primary);
+    color: white;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.step-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.step.active .step-label {
+    color: var(--primary);
+}
+
+.step.completed .step-label {
+    color: var(--success);
+}
+
+.step-divider {
+    width: 40px;
+    height: 2px;
+    background: var(--gray-200);
+    margin: 0 var(--spacing-xs);
+    margin-bottom: 30px;
+    transition: all var(--transition-base);
+}
+
+.step.completed + .step-divider {
+    background: var(--success);
+}
+
+/* Processing Info */
+.processing-info {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-lg);
+    background: var(--info-light);
+    border: 1px solid var(--info);
+    border-radius: var(--radius-lg);
+    color: var(--info);
+    font-size: 0.875rem;
+}
+
+.processing-info svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.processing-info p {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .processing-page {
+        padding: var(--spacing-xl) 0;
+    }
+
+    .progress-circle-container {
+        width: 160px;
+        height: 160px;
+    }
+
+    .progress-icon svg {
+        width: 36px;
+        height: 36px;
+    }
+
+    .progress-percentage {
+        font-size: 1.5rem;
+    }
+
+    .status-title {
+        font-size: 1.5rem;
+    }
+
+    .processing-steps {
+        gap: 0;
+        padding: var(--spacing-lg);
+        overflow-x: auto;
+    }
+
+    .step-icon {
+        width: 40px;
+        height: 40px;
+    }
+
+    .step-icon svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .step-label {
+        font-size: 0.625rem;
+    }
+
+    .step-divider {
+        width: 20px;
+        margin: 0 var(--spacing-xs);
+    }
+}
+
+@media (max-width: 480px) {
+    .progress-circle-container {
+        width: 140px;
+        height: 140px;
+    }
+
+    .progress-percentage {
+        font-size: 1.25rem;
+    }
+
+    .status-title {
+        font-size: 1.25rem;
+        flex-direction: column;
+    }
+
+    .status-info {
+        padding: var(--spacing-lg);
+    }
+
+    .progress-bar-container {
+        padding: var(--spacing-lg);
+    }
+
+    .task-info {
+        padding: var(--spacing-md);
+    }
+
+    .task-id-container {
+        flex-direction: column;
+    }
+
+    .processing-steps {
+        padding: var(--spacing-md);
+    }
+
+    .step-icon {
+        width: 36px;
+        height: 36px;
+    }
+
+    .step-icon svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .step-label {
+        font-size: 0.625rem;
+    }
+
+    .step-divider {
+        width: 16px;
+    }
+
+    .processing-info {
+        padding: var(--spacing-md);
+    }
+}

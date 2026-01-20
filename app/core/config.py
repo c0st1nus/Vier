@@ -21,6 +21,25 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
+    # Database settings
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/vier"
+    DATABASE_ECHO: bool = False
+
+    # Redis settings
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_CACHE_TTL: int = 3600  # 1 hour
+
+    # S3/MinIO settings
+    S3_ENABLED: bool = True
+    S3_ENDPOINT: str = "http://localhost:9000"
+    S3_ACCESS_KEY: str = "minioadmin"
+    S3_SECRET_KEY: str = "minioadmin"
+    S3_BUCKET: str = "vier-videos"
+    S3_REGION: str = "us-east-1"
+    S3_USE_SSL: bool = False
+    S3_PUBLIC_URL: Optional[str] = None  # Public URL for CDN (optional)
+    S3_SIGNED_URL_EXPIRY: int = 3600  # Signed URL expiry in seconds (1 hour)
+
     # Hardware constraints (CRITICAL - 8GB VRAM limit)
     MAX_VRAM_GB: float = 6.5  # Leave buffer for system
     DEVICE: str = "cuda"
@@ -66,6 +85,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
         case_sensitive = True
 
 

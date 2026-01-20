@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import requests
 
@@ -9,7 +9,9 @@ from app.core.config import settings
 from app.schemas.models import (
     FrameAnalysis,
     Quiz,
+    QuizTranslation,
     QuizType,
+    SegmentTranslation,
     TranscriptionSegment,
     VideoSegment,
 )
@@ -110,6 +112,94 @@ class LLMService:
             logger.error(f"Text generation failed: {e}")
             return ""
 
+    def generate_video_title(
+        self,
+        transcription: List[TranscriptionSegment],
+        frame_analyses: List[FrameAnalysis],
+        video_duration: float,
+    ) -> str:
+        """
+        Generate a descriptive title for the video based on its content
+
+        Args:
+            transcription: List of transcription segments
+            frame_analyses: List of frame analyses
+            video_duration: Total video duration
+
+        Returns:
+            Generated video title
+        """
+        if not self.model_loaded:
+            self.load_model()
+
+        logger.info("Generating video title")
+
+        try:
+            # Prepare context from transcription
+            transcript_text = " ".join([seg.text for seg in transcription[:50]])
+
+            # Get frame descriptions at key timestamps
+            frame_context = "\n".join(
+                [
+                    f"At {fa.timestamp:.1f}s: {fa.description[:100]}"
+                    for fa in frame_analyses[:5]
+                ]
+            )
+
+            # Create title generation prompt
+            prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+
+You are an expert at creating concise, descriptive titles for educational video content.<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Video Duration: {video_duration:.1f} seconds
+
+Transcript excerpt:
+{transcript_text[:1000]}
+
+Visual Information:
+{frame_context}
+
+Task: Generate a short, descriptive title for this video (maximum 80 characters). The title should:
+1. Capture the main topic or theme
+2. Be clear and engaging
+3. Be concise and informative
+
+Respond with ONLY the title text, nothing else.
+
+Response:"""
+
+            # Generate title
+            title = self.generate_text(prompt, max_tokens=100)
+
+            # Clean up the title
+            title = title.strip().strip("\"'").strip()
+
+            # Truncate if too long
+            if len(title) > 80:
+                title = title[:77] + "..."
+
+            # Fallback if empty
+            if not title or len(title) < 3:
+                logger.warning("Generated title too short, using fallback")
+                # Use first few words from transcript as fallback
+                words = transcript_text.split()[:8]
+                title = " ".join(words)
+                if len(title) > 80:
+                    title = title[:77] + "..."
+
+            logger.info(f"Generated title: {title}")
+            return title
+
+        except Exception as e:
+            logger.error(f"Title generation failed: {e}")
+            # Fallback: use first few words from transcript
+            transcript_text = " ".join([seg.text for seg in transcription[:10]])
+            words = transcript_text.split()[:8]
+            title = " ".join(words)
+            if len(title) > 80:
+                title = title[:77] + "..."
+            return title if title else "Untitled Video"
+
     def segment_transcript(
         self,
         transcription: List[TranscriptionSegment],
@@ -190,9 +280,126 @@ Response:"""
             # Return fallback segments
             return self._create_fallback_segments(video_duration, transcription)
 
+    def generate_multilingual_quizzes(
+        self, segment_info: dict, transcript_text: str
+    ) -> List[Quiz]:
+        """
+        Generate quiz questions in multiple languages (ru, en, kk)
+
+        Args:
+            segment_info: Segment information (topic, summary, etc.)
+            transcript_text: Transcript text for this segment
+
+        Returns:
+            List of Quiz objects with multilingual translations
+        """
+        if not self.model_loaded:
+            self.load_model()
+
+        logger.info(
+            f"Generating multilingual quizzes for: {segment_info.get('topic', 'segment')}"
+        )
+
+        try:
+            # Create quiz generation prompt for all three languages
+            prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+
+You are an expert multilingual educator. Create quiz questions in THREE languages: Russian (ru), English (en), and Kazakh (kk).<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Topic: {segment_info.get("topic", "Video Content")}
+Summary: {segment_info.get("summary", "")}
+
+Content:
+{transcript_text[:1500]}
+
+Task: Create {settings.QUIZZES_PER_SEGMENT} multiple-choice questions. For EACH question, provide translations in ALL THREE languages.
+
+Format as JSON array with this EXACT structure:
+[
+  {{
+    "translations": {{
+      "ru": {{
+        "question": "Вопрос на русском?",
+        "options": ["Вариант А", "Вариант Б", "Вариант В", "Вариант Г"],
+        "explanation": "Объяснение на русском"
+      }},
+      "en": {{
+        "question": "Question in English?",
+        "options": ["Option A", "Option B", "Option C", "Option D"],
+        "explanation": "Explanation in English"
+      }},
+      "kk": {{
+        "question": "Сұрақ қазақ тілінде?",
+        "options": ["Нұсқа А", "Нұсқа Б", "Нұсқа В", "Нұсқа Г"],
+        "explanation": "Қазақ тіліндегі түсініктеме"
+      }}
+    }},
+    "correct_index": 1
+  }}
+]
+
+IMPORTANT: All three translations must have the SAME correct_index!
+
+Response:"""
+
+            # Generate quizzes
+            response = self.generate_text(prompt, max_tokens=2048)
+
+            # Parse JSON response
+            quiz_data = self._parse_json_response(response)
+
+            if not quiz_data:
+                logger.warning(
+                    "Could not parse multilingual quiz response, using fallback"
+                )
+                return self._create_fallback_multilingual_quizzes(segment_info)
+
+            # Convert to Quiz objects
+            quizzes = []
+            for item in quiz_data[: settings.QUIZZES_PER_SEGMENT]:
+                try:
+                    translations_data = item.get("translations", {})
+
+                    # Validate that we have all three languages
+                    if not all(
+                        lang in translations_data for lang in ["ru", "en", "kk"]
+                    ):
+                        logger.warning("Missing language translations, skipping quiz")
+                        continue
+
+                    translations = {}
+                    for lang in ["ru", "en", "kk"]:
+                        trans = translations_data[lang]
+                        translations[lang] = QuizTranslation(
+                            question=trans.get("question", "Question?"),
+                            options=trans.get("options", ["A", "B", "C", "D"]),
+                            explanation=trans.get("explanation"),
+                        )
+
+                    quiz = Quiz(
+                        translations=translations,
+                        correct_index=item.get("correct_index", 0),
+                        type=QuizType.MULTIPLE_CHOICE,
+                    )
+                    quizzes.append(quiz)
+                except Exception as e:
+                    logger.warning(f"Skipping invalid multilingual quiz: {e}")
+                    continue
+
+            if not quizzes:
+                logger.warning("No valid quizzes generated, using fallback")
+                return self._create_fallback_multilingual_quizzes(segment_info)
+
+            logger.info(f"Generated {len(quizzes)} multilingual quizzes")
+            return quizzes
+
+        except Exception as e:
+            logger.error(f"Multilingual quiz generation failed: {e}")
+            return self._create_fallback_multilingual_quizzes(segment_info)
+
     def generate_quizzes(self, segment_info: dict, transcript_text: str) -> List[Quiz]:
         """
-        Generate quiz questions for a video segment
+        Generate quiz questions for a video segment (uses multilingual generation)
 
         Args:
             segment_info: Segment information (topic, summary, etc.)
@@ -201,95 +408,112 @@ Response:"""
         Returns:
             List of Quiz objects
         """
+        return self.generate_multilingual_quizzes(segment_info, transcript_text)
+
+    def translate_segment_text(
+        self, topic: str, summary: str
+    ) -> Dict[str, SegmentTranslation]:
+        """
+        Translate segment title and summary to all three languages
+
+        Args:
+            topic: Original topic title
+            summary: Original summary
+
+        Returns:
+            Dict with translations for ru, en, kk
+        """
         if not self.model_loaded:
             self.load_model()
 
-        logger.info(f"Generating quizzes for: {segment_info.get('topic', 'segment')}")
-
         try:
-            # Create quiz generation prompt
             prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 
-You are an expert educator creating quiz questions for educational video content. Create clear, accurate questions that test understanding of the key concepts.<|eot_id|><|start_header_id|>user<|end_header_id|>
+You are a professional translator. Translate the following video segment information into Russian, English, and Kazakh.<|eot_id|><|start_header_id|>user<|end_header_id|>
 
-Topic: {segment_info.get("topic", "Video Content")}
-Summary: {segment_info.get("summary", "")}
+Original Topic: {topic}
+Original Summary: {summary}
 
-Content:
-{transcript_text[:1500]}
-
-Task: Create {settings.QUIZZES_PER_SEGMENT} multiple-choice questions based on this content.
-
-For each question provide:
-1. A clear question
-2. Exactly 4 answer options
-3. The index (0-3) of the correct answer
-4. Brief explanation of why it's correct
-
-Format as JSON array:
-[
-  {{
-    "question": "What is...",
-    "options": ["Option A", "Option B", "Option C", "Option D"],
-    "correct_index": 1,
-    "explanation": "Because..."
+Provide translations in JSON format:
+{{
+  "ru": {{
+    "topic_title": "Заголовок на русском",
+    "short_summary": "Краткое описание на русском"
   }},
-  ...
-]
+  "en": {{
+    "topic_title": "Title in English",
+    "short_summary": "Short description in English"
+  }},
+  "kk": {{
+    "topic_title": "Қазақ тіліндегі тақырып",
+    "short_summary": "Қазақ тіліндегі қысқаша сипаттама"
+  }}
+}}
 
 Response:"""
 
-            # Generate quizzes
-            response = self.generate_text(prompt, max_tokens=1024)
+            response = self.generate_text(prompt, max_tokens=512)
+            logger.debug(f"Translation response (first 500 chars): {response[:500]}")
 
-            # Parse JSON response
-            quiz_data = self._parse_json_response(response)
+            # Parse JSON object (not array) for translations
+            try:
+                # Try to find JSON object in response
+                start_idx = response.find("{")
+                end_idx = response.rfind("}") + 1
 
-            if not quiz_data:
-                logger.warning("Could not parse quiz response, using fallback")
-                quiz_data = self._create_fallback_quizzes(segment_info)
-
-            # Convert to Quiz objects
-            quizzes = []
-            for item in quiz_data[: settings.QUIZZES_PER_SEGMENT]:
-                try:
-                    quiz = Quiz(
-                        question=item.get("question", "Sample question?"),
-                        options=item.get(
-                            "options", ["Option A", "Option B", "Option C", "Option D"]
-                        ),
-                        correct_index=item.get("correct_index", 0),
-                        type=QuizType.MULTIPLE_CHOICE,
-                        explanation=item.get("explanation"),
+                if start_idx != -1 and end_idx > start_idx:
+                    json_str = response[start_idx:end_idx]
+                    # Clean invalid control characters from JSON
+                    json_str = (
+                        json_str.replace("\n", " ")
+                        .replace("\r", " ")
+                        .replace("\t", " ")
                     )
-                    quizzes.append(quiz)
-                except Exception as e:
-                    logger.warning(f"Skipping invalid quiz: {e}")
-                    continue
-
-            if not quizzes:
-                # Create at least one fallback quiz
-                quizzes = [
-                    Quiz(
-                        question=f"What is the main topic of this segment about {segment_info.get('topic', 'this content')}?",
-                        options=[
-                            segment_info.get("topic", "Main topic"),
-                            "Something else",
-                            "Another option",
-                            "Different topic",
-                        ],
-                        correct_index=0,
-                        type=QuizType.MULTIPLE_CHOICE,
-                        explanation="This segment focuses on the stated topic.",
+                    # Remove other control characters
+                    json_str = "".join(
+                        char if ord(char) >= 32 or char in "\n\r\t" else " "
+                        for char in json_str
                     )
-                ]
+                    translations_data = json.loads(json_str)
+                else:
+                    # Try parsing entire response
+                    response_clean = (
+                        response.replace("\n", " ")
+                        .replace("\r", " ")
+                        .replace("\t", " ")
+                    )
+                    translations_data = json.loads(response_clean)
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON parsing failed for translations: {e}")
+                logger.debug(f"Failed to parse response: {response[:1000]}")
+                raise ValueError("Invalid translation response")
 
-            logger.info(f"Generated {len(quizzes)} quizzes")
-            return quizzes
+            if not translations_data or not isinstance(translations_data, dict):
+                raise ValueError("Invalid translation response")
+
+            translations = {}
+            for lang in ["ru", "en", "kk"]:
+                if lang in translations_data:
+                    trans = translations_data[lang]
+                    translations[lang] = SegmentTranslation(
+                        topic_title=trans.get("topic_title", topic),
+                        short_summary=trans.get("short_summary", summary),
+                    )
+                else:
+                    # Fallback
+                    translations[lang] = SegmentTranslation(
+                        topic_title=topic, short_summary=summary
+                    )
+
+            return translations
 
         except Exception as e:
-            logger.error(f"Quiz generation failed: {e}")
-            return self._create_fallback_quizzes(segment_info)
+            logger.error(f"Translation failed: {e}, using fallback")
+            # Fallback: use same text for all languages
+            return {
+                lang: SegmentTranslation(topic_title=topic, short_summary=summary)
+                for lang in ["ru", "en", "kk"]
+            }
 
     def segment_and_generate_quizzes(
         self,
@@ -298,7 +522,7 @@ Response:"""
         video_duration: float,
     ) -> List[VideoSegment]:
         """
-        Complete pipeline: segment video and generate quizzes for each segment
+        Complete pipeline: segment video and generate multilingual quizzes for each segment
 
         Args:
             transcription: Video transcription
@@ -306,16 +530,16 @@ Response:"""
             video_duration: Video duration in seconds
 
         Returns:
-            List of VideoSegment objects with quizzes
+            List of VideoSegment objects with multilingual quizzes
         """
-        logger.info("Starting segmentation and quiz generation pipeline")
+        logger.info("Starting multilingual segmentation and quiz generation pipeline")
 
         # Step 1: Segment the content
         segment_defs = self.segment_transcript(
             transcription, frame_analyses, video_duration
         )
 
-        # Step 2: Generate quizzes for each segment
+        # Step 2: Generate multilingual quizzes for each segment
         video_segments = []
 
         for seg_def in segment_defs:
@@ -327,28 +551,34 @@ Response:"""
                 transcription, start_time, end_time
             )
 
-            # Generate quizzes
-            quizzes = self.generate_quizzes(seg_def, segment_transcript)
+            # Generate multilingual quizzes
+            quizzes = self.generate_multilingual_quizzes(seg_def, segment_transcript)
+
+            # Translate segment title and summary
+            topic = seg_def.get("topic", f"Segment {len(video_segments) + 1}")
+            summary = seg_def.get("summary", "Video content segment")
+            translations = self.translate_segment_text(topic, summary)
 
             # Extract keywords from transcript
             keywords = self._extract_keywords(segment_transcript)
 
-            # Create VideoSegment
+            # Create VideoSegment with multilingual support
             video_segment = VideoSegment(
                 start_time=start_time,
                 end_time=end_time,
-                topic_title=seg_def.get("topic", f"Segment {len(video_segments) + 1}"),
-                short_summary=seg_def.get("summary", "Video content segment"),
+                translations=translations,
                 keywords=keywords,
                 quizzes=quizzes,
             )
 
             video_segments.append(video_segment)
             logger.info(
-                f"Completed segment: {video_segment.topic_title} ({start_time:.1f}s - {end_time:.1f}s)"
+                f"Completed multilingual segment: {topic} ({start_time:.1f}s - {end_time:.1f}s)"
             )
 
-        logger.info(f"Pipeline completed: {len(video_segments)} segments created")
+        logger.info(
+            f"Pipeline completed: {len(video_segments)} multilingual segments created"
+        )
         return video_segments
 
     def _parse_json_response(self, response: str) -> List[dict]:
@@ -360,13 +590,50 @@ Response:"""
 
             if start_idx != -1 and end_idx > start_idx:
                 json_str = response[start_idx:end_idx]
-                return json.loads(json_str)
             else:
                 # Try parsing entire response
-                return json.loads(response)
+                json_str = response
+
+            # Clean control characters that might break JSON parsing
+            # Remove literal newlines, tabs, and other control characters from string values
+            json_str = (
+                json_str.replace("\\n", " ").replace("\\r", " ").replace("\\t", " ")
+            )
+
+            # Remove actual control characters (but keep JSON structural characters)
+            cleaned = []
+            in_string = False
+            escape_next = False
+
+            for char in json_str:
+                if escape_next:
+                    cleaned.append(char)
+                    escape_next = False
+                    continue
+
+                if char == "\\":
+                    escape_next = True
+                    cleaned.append(char)
+                    continue
+
+                if char == '"' and not escape_next:
+                    in_string = not in_string
+                    cleaned.append(char)
+                    continue
+
+                # If we're inside a string, replace control characters with spaces
+                if in_string and ord(char) < 32 and char not in "\n\r\t":
+                    cleaned.append(" ")
+                else:
+                    cleaned.append(char)
+
+            json_str = "".join(cleaned)
+
+            return json.loads(json_str)
 
         except json.JSONDecodeError as e:
             logger.warning(f"JSON parsing failed: {e}")
+            logger.debug(f"Failed to parse response: {response[:1000]}")
             return []
 
     def _create_fallback_segments(
@@ -397,19 +664,44 @@ Response:"""
 
         return segments
 
-    def _create_fallback_quizzes(self, segment_info: dict) -> List[Quiz]:
-        """Create simple fallback quizzes"""
+    def _create_fallback_multilingual_quizzes(self, segment_info: dict) -> List[Quiz]:
+        """Create simple fallback quizzes with multilingual support"""
         topic = segment_info.get("topic", "this content")
+
+        translations = {
+            "ru": QuizTranslation(
+                question=f"О чём говорится в этом сегменте про {topic}?",
+                options=[topic, "Несвязанная тема А", "Несвязанная тема Б", "Другое"],
+                explanation=f"Этот сегмент посвящён {topic}.",
+            ),
+            "en": QuizTranslation(
+                question=f"What is discussed in the segment about {topic}?",
+                options=[topic, "Unrelated topic A", "Unrelated topic B", "Other"],
+                explanation=f"This segment focuses on {topic}.",
+            ),
+            "kk": QuizTranslation(
+                question=f"{topic} туралы бұл сегментте не талқыланады?",
+                options=[
+                    topic,
+                    "Байланыссыз тақырып А",
+                    "Байланыссыз тақырып Б",
+                    "Басқа",
+                ],
+                explanation=f"Бұл сегмент {topic} туралы.",
+            ),
+        }
 
         return [
             Quiz(
-                question=f"What is discussed in the segment about {topic}?",
-                options=[topic, "Unrelated topic A", "Unrelated topic B", "Other"],
+                translations=translations,
                 correct_index=0,
                 type=QuizType.MULTIPLE_CHOICE,
-                explanation=f"This segment focuses on {topic}.",
             )
         ]
+
+    def _create_fallback_quizzes(self, segment_info: dict) -> List[Quiz]:
+        """Create simple fallback quizzes (uses multilingual version)"""
+        return self._create_fallback_multilingual_quizzes(segment_info)
 
     def _get_transcript_for_range(
         self,

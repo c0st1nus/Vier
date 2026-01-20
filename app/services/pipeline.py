@@ -14,6 +14,7 @@ from app.schemas.models import (
     VideoSegment,
 )
 from app.services.asr_service import ASRService
+from app.services.db_updater import DBUpdater
 from app.services.llm_service import LLMService
 from app.services.vision_service import VisionService
 from app.utils.video_utils import (
@@ -28,8 +29,17 @@ from app.utils.video_utils import (
 
 logger = logging.getLogger(__name__)
 
-# Global task storage (in production, use Redis or database)
+# Global task storage (in-memory cache, DB is source of truth)
 TASKS: Dict[str, ProcessingTask] = {}
+
+
+def run_in_threadpool(func, *args, **kwargs):
+    """Run blocking function in thread pool"""
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(func, *args, **kwargs)
+        return future.result()
 
 
 class VideoPipeline:
@@ -41,7 +51,7 @@ class VideoPipeline:
         self.llm_service = LLMService()
 
     async def process_video(
-        self, task_id: str, video_path: Path, source_url: Optional[str] = None
+        self, task_id: str, video_path: Path, source_url: Optional[str] = None, language: str = "ru"
     ) -> ProcessingTask:
         """
         Main video processing pipeline
@@ -50,6 +60,7 @@ class VideoPipeline:
             task_id: Unique task identifier
             video_path: Path to video file
             source_url: Optional source URL (for YouTube videos)
+            language: Language for quizzes (ru, en, kk)
 
         Returns:
             Completed ProcessingTask
@@ -62,96 +73,131 @@ class VideoPipeline:
             logger.info(f"Starting pipeline for task {task_id}")
 
             # Stage 1: Validate video
-            self._update_task_status(
+            await self._update_task_status(
                 task_id,
                 TaskStatus.PENDING,
                 0.0,
                 ProcessingStage.DOWNLOAD,
                 "Validating video file",
             )
-            validate_video_file(video_path)
+            await DBUpdater.set_processing_started(task_id)
+            await asyncio.to_thread(validate_video_file, video_path)
             task.video_path = str(video_path)
 
             # Stage 2: Extract metadata
-            self._update_task_status(
-                task_id, TaskStatus.EXTRACTING_AUDIO, 10.0, None, "Extracting metadata"
+            await self._update_task_status(
+                task_id,
+                TaskStatus.EXTRACTING_AUDIO,
+                10.0,
+                ProcessingStage.AUDIO_EXTRACTION,
+                "Extracting metadata",
             )
-            metadata = get_video_metadata(video_path)
+            await DBUpdater.set_stage_progress(task_id, "Extracting metadata", 10.0)
+            metadata = await asyncio.to_thread(get_video_metadata, video_path)
             task.metadata = metadata
             logger.info(f"Video duration: {metadata.duration:.2f}s")
 
             # Stage 3: Extract audio
-            self._update_task_status(
+            await self._update_task_status(
                 task_id,
                 TaskStatus.EXTRACTING_AUDIO,
                 15.0,
                 ProcessingStage.AUDIO_EXTRACTION,
                 "Extracting audio track",
             )
+            await DBUpdater.set_stage_progress(task_id, "Extracting audio track", 15.0)
             audio_path = settings.TEMP_DIR / f"{task_id}_audio.wav"
-            extract_audio(video_path, audio_path)
+            await asyncio.to_thread(extract_audio, video_path, audio_path)
             task.audio_path = str(audio_path)
             logger.info(f"Audio extracted: {audio_path}")
 
             # Stage 4: Transcribe audio
-            self._update_task_status(
+            await self._update_task_status(
                 task_id,
                 TaskStatus.TRANSCRIBING,
                 25.0,
                 ProcessingStage.TRANSCRIPTION,
                 "Transcribing audio (this may take a few minutes)",
             )
+            await DBUpdater.set_stage_progress(task_id, "Transcribing audio", 25.0)
             try:
-                transcription = self.asr_service.transcribe(audio_path)
+                transcription = await asyncio.to_thread(
+                    self.asr_service.transcribe, audio_path
+                )
                 task.transcription = transcription
                 logger.info(f"Transcription completed: {len(transcription)} segments")
             finally:
                 # Unload ASR model to free VRAM
-                self.asr_service.unload_model()
-                clear_vram()
+                await asyncio.to_thread(self.asr_service.unload_model)
+                await asyncio.to_thread(clear_vram)
 
             # Stage 5: Extract and analyze frames
-            self._update_task_status(
+            await self._update_task_status(
                 task_id,
                 TaskStatus.ANALYZING_FRAMES,
                 50.0,
                 ProcessingStage.FRAME_ANALYSIS,
                 "Analyzing video frames",
             )
+            await DBUpdater.set_stage_progress(task_id, "Analyzing video frames", 50.0)
             frames_dir = settings.TEMP_DIR / f"{task_id}_frames"
-            frame_paths = extract_frames(video_path, frames_dir)
+            frame_paths = await asyncio.to_thread(
+                extract_frames, video_path, frames_dir
+            )
             logger.info(f"Extracted {len(frame_paths)} frames")
 
             try:
-                frame_analyses = self.vision_service.analyze_frames(frame_paths)
+                frame_analyses = await asyncio.to_thread(
+                    self.vision_service.analyze_frames, frame_paths
+                )
                 task.frame_analyses = frame_analyses
                 logger.info(f"Frame analysis completed: {len(frame_analyses)} frames")
             finally:
                 # Unload vision model to free VRAM
-                self.vision_service.unload_model()
-                clear_vram()
+                await asyncio.to_thread(self.vision_service.unload_model)
+                await asyncio.to_thread(clear_vram)
 
             # Stage 6: Segment video and generate quizzes
-            self._update_task_status(
+            await self._update_task_status(
                 task_id,
                 TaskStatus.GENERATING_QUIZZES,
                 70.0,
                 ProcessingStage.SEGMENTATION,
                 "Segmenting content and generating quizzes",
             )
+            await DBUpdater.set_stage_progress(task_id, "Generating quizzes", 70.0)
             try:
-                segments = self.llm_service.segment_and_generate_quizzes(
-                    transcription, frame_analyses, metadata.duration
+                segments = await asyncio.to_thread(
+                    self.llm_service.segment_and_generate_quizzes,
+                    transcription,
+                    frame_analyses,
+                    metadata.duration,
+                    language,
                 )
                 task.segments = segments
                 logger.info(f"Generated {len(segments)} segments with quizzes")
+
+                # Generate video title
+                logger.info("Generating video title")
+                video_title = await asyncio.to_thread(
+                    self.llm_service.generate_video_title,
+                    transcription,
+                    frame_analyses,
+                    metadata.duration,
+                    language,
+                )
+                logger.info(f"Generated video title: {video_title}")
+
+                # Update task with video title in database
+                await DBUpdater.update_video_title(task_id, video_title)
+
             finally:
                 # Unload LLM model to free VRAM
-                self.llm_service.unload_model()
-                clear_vram()
+                await asyncio.to_thread(self.llm_service.unload_model)
+                await asyncio.to_thread(clear_vram)
 
             # Stage 7: Finalization
-            self._update_task_status(
+            await self._update_task_status(
                 task_id,
                 TaskStatus.COMPLETED,
                 100.0,
@@ -159,32 +205,48 @@ class VideoPipeline:
                 "Processing completed successfully",
             )
 
+            # Update database with results
+            segments_json = [seg.dict() for seg in task.segments]
+            video_metadata_dict = {
+                "duration": metadata.duration,
+                "width": metadata.width,
+                "height": metadata.height,
+                "fps": metadata.fps,
+            }
+            await DBUpdater.set_completed(
+                task_id=task_id,
+                segments=segments_json,
+                duration=metadata.duration,
+                video_metadata=video_metadata_dict,
+            )
+
             # Cleanup temporary files
             logger.info("Cleaning up temporary files")
-            cleanup_temp_files(audio_path, frames_dir)
+            await asyncio.to_thread(cleanup_temp_files, audio_path, frames_dir)
 
             logger.info(f"Pipeline completed successfully for task {task_id}")
             return task
 
         except Exception as e:
             logger.error(f"Pipeline failed for task {task_id}: {e}", exc_info=True)
-            self._update_task_status(
-                task_id, TaskStatus.FAILED, task.progress, None, f"Error: {str(e)}"
+            await self._update_task_status(
+                task_id, TaskStatus.FAILED, 0.0, None, f"Error: {str(e)}"
             )
             task.error = str(e)
+            await DBUpdater.set_failed(task_id, str(e))
             raise
 
         finally:
             # Ensure all models are unloaded
             try:
-                self.asr_service.unload_model()
-                self.vision_service.unload_model()
-                self.llm_service.unload_model()
-                clear_vram()
+                await asyncio.to_thread(self.asr_service.unload_model)
+                await asyncio.to_thread(self.vision_service.unload_model)
+                await asyncio.to_thread(self.llm_service.unload_model)
+                await asyncio.to_thread(clear_vram)
             except Exception as e:
                 logger.warning(f"Error during model cleanup: {e}")
 
-    def _update_task_status(
+    async def _update_task_status(
         self,
         task_id: str,
         status: TaskStatus,
@@ -192,7 +254,7 @@ class VideoPipeline:
         stage: Optional[ProcessingStage],
         message: Optional[str] = None,
     ):
-        """Update task status in storage"""
+        """Update task status in storage and DB"""
         task = TASKS.get(task_id)
         if task:
             task.status = status
@@ -274,28 +336,30 @@ def get_task_segments(task_id: str) -> Optional[list[VideoSegment]]:
     return task.segments
 
 
-async def process_video_from_file(task_id: str, file_path: Path) -> ProcessingTask:
+async def process_video_from_file(task_id: str, file_path: Path, language: str = "ru"):
     """
-    Process video from uploaded file
+    Process video from uploaded file (runs in background)
 
     Args:
         task_id: Task identifier
         file_path: Path to uploaded video file
+        language: Language for quizzes (ru, en, kk)
 
     Returns:
         Completed ProcessingTask
     """
     pipeline = VideoPipeline()
-    return await pipeline.process_video(task_id, file_path)
+    return await pipeline.process_video(task_id, file_path, language=language)
 
 
-async def process_video_from_url(task_id: str, url: str) -> ProcessingTask:
+async def process_video_from_url(task_id: str, url: str, language: str = "ru") -> ProcessingTask:
     """
     Process video from URL (YouTube, etc.)
 
     Args:
         task_id: Task identifier
         url: Video URL
+        language: Language for quizzes (ru, en, kk)
 
     Returns:
         Completed ProcessingTask
@@ -316,15 +380,32 @@ async def process_video_from_url(task_id: str, url: str) -> ProcessingTask:
         download_dir = settings.TEMP_DIR / task_id
         video_path = download_youtube_video(url, download_dir)
 
+        # Update database with downloaded video path
+        file_size = video_path.stat().st_size if video_path.exists() else None
+        from app.db.session import AsyncSessionLocal, get_redis
+        from app.services.task_service import TaskService
+
+        async with AsyncSessionLocal() as db:
+            redis = await get_redis()
+            task_service = TaskService(db, redis)
+            await task_service.update_task_path(
+                task_id=task_id,
+                video_path=str(video_path),
+                file_size=file_size,
+                original_filename=video_path.name,
+            )
+            logger.info(f"Updated database with downloaded video path: {video_path}")
+
         # Process the downloaded video
         pipeline = VideoPipeline()
-        return await pipeline.process_video(task_id, video_path, source_url=url)
+        return await pipeline.process_video(task_id, video_path, source_url=url, language=language)
 
     except Exception as e:
         logger.error(f"Failed to process video from URL: {e}")
         task.status = TaskStatus.FAILED
         task.error = str(e)
         task.updated_at = datetime.utcnow()
+        await DBUpdater.set_failed(task_id, str(e))
         raise
 
 

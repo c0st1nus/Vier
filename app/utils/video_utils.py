@@ -1,5 +1,6 @@
 import gc
 import logging
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, Optional
@@ -64,6 +65,22 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
     Raises:
         Exception: If download fails
     """
+    # Sanitize URL - remove shell escape characters
+    url = url.replace("\\", "")
+    logger.info(f"Sanitized URL: {url}")
+
+    # Validate YouTube URL
+    youtube_patterns = [
+        r"(?:https?://)?(?:www\.)?youtube\.com/watch\?v=[\w-]+",
+        r"(?:https?://)?(?:www\.)?youtu\.be/[\w-]+",
+        r"(?:https?://)?(?:www\.)?youtube\.com/embed/[\w-]+",
+    ]
+
+    is_youtube_url = any(re.match(pattern, url) for pattern in youtube_patterns)
+
+    if not is_youtube_url:
+        logger.warning(f"URL does not appear to be a valid YouTube video URL: {url}")
+
     output_path.mkdir(parents=True, exist_ok=True)
     output_template = str(output_path / "%(id)s.%(ext)s")
 
@@ -73,20 +90,53 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
         "quiet": False,
         "no_warnings": False,
         "extract_flat": False,
+        "noplaylist": True,  # Don't download playlists
     }
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore
             logger.info(f"Downloading video from: {url}")
             info = ydl.extract_info(url, download=True)
-            video_id = info.get("id", "video") if info else "video"
-            ext = info.get("ext", "mp4") if info else "mp4"
+
+            # Check if we got actual video info
+            if not info:
+                raise ValueError("No video information retrieved from URL")
+
+            # Check if it's a playlist or redirect
+            if info.get("_type") == "playlist":
+                raise ValueError(
+                    "URL points to a playlist, not a single video. Please provide a direct video URL."
+                )
+
+            video_id = info.get("id")
+            if not video_id:
+                raise ValueError("Could not extract video ID from URL")
+
+            ext = info.get("ext", "mp4")
             video_path = output_path / f"{video_id}.{ext}"
 
             if not video_path.exists():
-                raise FileNotFoundError(f"Downloaded file not found: {video_path}")
+                # Try to find any video file in the directory
+                video_files = (
+                    list(output_path.glob("*.mp4"))
+                    + list(output_path.glob("*.webm"))
+                    + list(output_path.glob("*.mkv"))
+                )
+                if video_files:
+                    video_path = video_files[0]
+                    logger.info(f"Found downloaded video: {video_path}")
+                else:
+                    raise FileNotFoundError(f"Downloaded file not found: {video_path}")
 
-            logger.info(f"Video downloaded successfully: {video_path}")
+            # Verify it's a valid video file
+            if video_path.stat().st_size < 1024:  # Less than 1KB
+                raise ValueError(
+                    f"Downloaded file is too small ({video_path.stat().st_size} bytes), likely not a valid video"
+                )
+
+            logger.info(
+                f"Video downloaded successfully: {video_path} ({video_path.stat().st_size / (1024 * 1024):.2f} MB)"
+            )
             return video_path
 
     except Exception as e:

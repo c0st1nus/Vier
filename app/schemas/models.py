@@ -9,6 +9,7 @@ class TaskStatus(str, Enum):
     """Status of video processing task"""
 
     PENDING = "pending"
+    PROCESSING = "processing"
     DOWNLOADING = "downloading"
     EXTRACTING_AUDIO = "extracting_audio"
     TRANSCRIBING = "transcribing"
@@ -83,28 +84,62 @@ class QuizOption(BaseModel):
     is_correct: bool = False
 
 
-class Quiz(BaseModel):
-    """A single quiz question"""
+class QuizTranslation(BaseModel):
+    """Translation for a single language"""
 
     question: str = Field(..., description="Quiz question text")
     options: List[str] = Field(..., min_items=2, max_items=4)
-    correct_index: int = Field(
-        ..., ge=0, description="Index of correct answer (0-based)"
-    )
-    type: QuizType = Field(default=QuizType.MULTIPLE_CHOICE)
     explanation: Optional[str] = Field(
         None, description="Explanation for the correct answer"
     )
 
 
+class Quiz(BaseModel):
+    """A single quiz question with multilingual support"""
+
+    translations: Dict[str, QuizTranslation] = Field(
+        ..., description="Translations for different languages (ru, en, kk)"
+    )
+    correct_index: int = Field(
+        ..., ge=0, description="Index of correct answer (0-based)"
+    )
+    type: QuizType = Field(default=QuizType.MULTIPLE_CHOICE)
+
+    # For backward compatibility, provide default language accessors
+    @property
+    def question(self) -> str:
+        """Get question in Russian (default language)"""
+        return self.translations.get("ru", list(self.translations.values())[0]).question
+
+    @property
+    def options(self) -> List[str]:
+        """Get options in Russian (default language)"""
+        return self.translations.get("ru", list(self.translations.values())[0]).options
+
+    @property
+    def explanation(self) -> Optional[str]:
+        """Get explanation in Russian (default language)"""
+        return self.translations.get(
+            "ru", list(self.translations.values())[0]
+        ).explanation
+
+
 # Segment models
+class SegmentTranslation(BaseModel):
+    """Translation for segment text"""
+
+    topic_title: str = Field(..., description="Title/topic of this segment")
+    short_summary: str = Field(..., description="Brief summary of segment content")
+
+
 class VideoSegment(BaseModel):
-    """A semantic segment of the video with quizzes"""
+    """A semantic segment of the video with quizzes and multilingual support"""
 
     start_time: float = Field(..., ge=0, description="Start time in seconds")
     end_time: float = Field(..., gt=0, description="End time in seconds")
-    topic_title: str = Field(..., description="Title/topic of this segment")
-    short_summary: str = Field(..., description="Brief summary of segment content")
+    translations: Dict[str, SegmentTranslation] = Field(
+        ..., description="Translations for different languages (ru, en, kk)"
+    )
     keywords: List[str] = Field(
         default_factory=list, description="Key terms from segment"
     )
@@ -112,23 +147,75 @@ class VideoSegment(BaseModel):
         default_factory=list, description="Generated quiz questions"
     )
 
+    # For backward compatibility
+    @property
+    def topic_title(self) -> str:
+        """Get topic title in Russian (default language)"""
+        return self.translations.get(
+            "ru", list(self.translations.values())[0]
+        ).topic_title
+
+    @property
+    def short_summary(self) -> str:
+        """Get summary in Russian (default language)"""
+        return self.translations.get(
+            "ru", list(self.translations.values())[0]
+        ).short_summary
+
     class Config:
         json_schema_extra = {
             "example": {
                 "start_time": 0.0,
                 "end_time": 45.5,
-                "topic_title": "Introduction to Neural Networks",
-                "short_summary": "Overview of neural network basics and architecture",
+                "translations": {
+                    "ru": {
+                        "topic_title": "Введение в нейронные сети",
+                        "short_summary": "Обзор основ нейронных сетей и архитектуры",
+                    },
+                    "en": {
+                        "topic_title": "Introduction to Neural Networks",
+                        "short_summary": "Overview of neural network basics and architecture",
+                    },
+                    "kk": {
+                        "topic_title": "Нейрондық желілерге кіріспе",
+                        "short_summary": "Нейрондық желілердің негіздері мен архитектурасына шолу",
+                    },
+                },
                 "keywords": ["neural networks", "deep learning", "backpropagation"],
                 "quizzes": [
                     {
-                        "question": "What is the primary purpose of backpropagation?",
-                        "options": [
-                            "Forward pass computation",
-                            "Weight optimization",
-                            "Data preprocessing",
-                            "Model evaluation",
-                        ],
+                        "translations": {
+                            "ru": {
+                                "question": "Какова основная цель обратного распространения?",
+                                "options": [
+                                    "Прямое вычисление",
+                                    "Оптимизация весов",
+                                    "Предобработка данных",
+                                    "Оценка модели",
+                                ],
+                                "explanation": "Обратное распространение используется для оптимизации весов",
+                            },
+                            "en": {
+                                "question": "What is the primary purpose of backpropagation?",
+                                "options": [
+                                    "Forward pass computation",
+                                    "Weight optimization",
+                                    "Data preprocessing",
+                                    "Model evaluation",
+                                ],
+                                "explanation": "Backpropagation is used for weight optimization",
+                            },
+                            "kk": {
+                                "question": "Кері тарату әдісінің негізгі мақсаты қандай?",
+                                "options": [
+                                    "Тура есептеу",
+                                    "Салмақты оңтайландыру",
+                                    "Деректерді алдын ала өңдеу",
+                                    "Модельді бағалау",
+                                ],
+                                "explanation": "Кері тарату салмақты оңтайландыру үшін қолданылады",
+                            },
+                        },
                         "correct_index": 1,
                         "type": "multiple_choice",
                     }

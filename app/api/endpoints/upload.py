@@ -187,7 +187,7 @@ async def upload_video_url(
         )
 
         # Start processing in background
-        asyncio.create_task(process_video_from_url(task_id, request.video_url))
+        asyncio.create_task(process_video_from_url(task_id, url))
 
         return VideoURLResponse(
             task_id=task_id,

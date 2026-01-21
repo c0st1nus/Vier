@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-import torch
 from faster_whisper import WhisperModel
 
 from app.core.config import settings
@@ -37,8 +36,8 @@ class ASRService:
             os.environ["HF_HOME"] = str(settings.MODELS_DIR / "whisper")
             os.environ["HF_HUB_CACHE"] = str(settings.MODELS_DIR / "whisper")
 
-            # Use the turbo model that's already downloaded
-            model_name = "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
+            # Use the model specified in settings
+            model_name = settings.WHISPER_MODEL
 
             self.model = WhisperModel(
                 model_name,
@@ -49,7 +48,7 @@ class ASRService:
 
             self.model_loaded = True
             allocated, reserved = get_vram_usage()
-            logger.info(f"Whisper model loaded successfully")
+            logger.info("Whisper model loaded successfully")
             logger.info(
                 f"VRAM after loading: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved"
             )
@@ -65,7 +64,11 @@ class ASRService:
             del self.model
             self.model = None
             self.model_loaded = False
-            clear_vram()
+
+            # Only clear VRAM if not keeping models in memory
+            if not settings.MODELS_STAY_IN_MEMORY:
+                clear_vram()
+
             logger.info("Whisper model unloaded")
 
     def transcribe(
@@ -91,24 +94,42 @@ class ASRService:
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
+        if self.model is None:
+            raise Exception("Whisper model not loaded")
+
         try:
             logger.info(f"Starting transcription: {audio_path}")
             logger.info(f"Language: {language or 'auto-detect'}, Task: {task}")
+            logger.info(f"Batch size: {settings.WHISPER_BATCH_SIZE}")
 
-            # Transcribe with faster-whisper
-            segments, info = self.model.transcribe(
-                str(audio_path),
-                language=language,
-                task=task,
-                beam_size=5,
-                best_of=5,
-                temperature=0.0,
-                vad_filter=True,  # Voice Activity Detection
-                vad_parameters=dict(
-                    min_silence_duration_ms=500,
-                    threshold=0.5,
-                ),
-            )
+            # Transcribe with faster-whisper (with batching)
+            # Note: batch_size parameter requires faster-whisper >= 0.9.0
+            transcribe_kwargs = {
+                "language": language,
+                "task": task,
+                "beam_size": 5,
+                "best_of": 5,
+                "temperature": 0.0,
+                "vad_filter": True,
+                "vad_parameters": {
+                    "min_silence_duration_ms": 500,
+                    "threshold": 0.5,
+                },
+            }
+
+            # Add batch_size if > 1 (newer versions of faster-whisper)
+            if (
+                hasattr(settings, "WHISPER_BATCH_SIZE")
+                and settings.WHISPER_BATCH_SIZE > 1
+            ):
+                try:
+                    transcribe_kwargs["batch_size"] = settings.WHISPER_BATCH_SIZE
+                except TypeError:
+                    logger.warning(
+                        "batch_size parameter not supported in this version of faster-whisper"
+                    )
+
+            segments, info = self.model.transcribe(str(audio_path), **transcribe_kwargs)
 
             # Log detected language
             logger.info(
@@ -147,8 +168,9 @@ class ASRService:
             raise Exception(f"ASR transcription failed: {str(e)}")
 
         finally:
-            # Free VRAM after transcription
-            clear_vram()
+            # Free VRAM after transcription only if not keeping models in memory
+            if not settings.MODELS_STAY_IN_MEMORY:
+                clear_vram()
 
     def get_full_transcript(self, segments: List[TranscriptionSegment]) -> str:
         """

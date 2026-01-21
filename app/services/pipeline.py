@@ -49,9 +49,59 @@ class VideoPipeline:
         self.asr_service = ASRService()
         self.vision_service = VisionService()
         self.llm_service = LLMService()
+        self.models_preloaded = False
+
+        # Preload all models if configured
+        if settings.PRELOAD_ALL_MODELS:
+            logger.info("🚀 Preloading all models (PRODUCTION mode)")
+            self._preload_all_models()
+
+    def _preload_all_models(self):
+        """Preload all models into VRAM for faster processing"""
+        try:
+            logger.info("Loading ASR model...")
+            self.asr_service.load_model()
+
+            logger.info("Loading Vision model...")
+            self.vision_service.load_model()
+
+            logger.info("Loading LLM model...")
+            self.llm_service.load_model()
+
+            self.models_preloaded = True
+            logger.info("✅ All models preloaded successfully")
+
+            # Log VRAM usage
+            from app.utils.video_utils import get_vram_usage
+
+            allocated, reserved = get_vram_usage()
+            logger.info(
+                f"Total VRAM usage: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to preload models: {e}")
+            self.models_preloaded = False
+            raise
+
+    def _maybe_unload_models(self):
+        """Unload models if not in PRELOAD mode"""
+        if not settings.MODELS_STAY_IN_MEMORY:
+            logger.info("Unloading models to free VRAM")
+            try:
+                self.asr_service.unload_model()
+                self.vision_service.unload_model()
+                self.llm_service.unload_model()
+                clear_vram()
+            except Exception as e:
+                logger.warning(f"Error during model cleanup: {e}")
 
     async def process_video(
-        self, task_id: str, video_path: Path, source_url: Optional[str] = None, language: str = "ru"
+        self,
+        task_id: str,
+        video_path: Path,
+        source_url: Optional[str] = None,
+        language: str = "ru",
     ) -> ProcessingTask:
         """
         Main video processing pipeline
@@ -120,14 +170,14 @@ class VideoPipeline:
                 "Transcribing audio (this may take a few minutes)",
             )
             await DBUpdater.set_stage_progress(task_id, "Transcribing audio", 25.0)
-            try:
-                transcription = await asyncio.to_thread(
-                    self.asr_service.transcribe, audio_path
-                )
-                task.transcription = transcription
-                logger.info(f"Transcription completed: {len(transcription)} segments")
-            finally:
-                # Unload ASR model to free VRAM
+            transcription = await asyncio.to_thread(
+                self.asr_service.transcribe, audio_path
+            )
+            task.transcription = transcription
+            logger.info(f"Transcription completed: {len(transcription)} segments")
+
+            # Unload ASR model to free VRAM (only if not keeping in memory)
+            if not settings.MODELS_STAY_IN_MEMORY:
                 await asyncio.to_thread(self.asr_service.unload_model)
                 await asyncio.to_thread(clear_vram)
 
@@ -146,14 +196,14 @@ class VideoPipeline:
             )
             logger.info(f"Extracted {len(frame_paths)} frames")
 
-            try:
-                frame_analyses = await asyncio.to_thread(
-                    self.vision_service.analyze_frames, frame_paths
-                )
-                task.frame_analyses = frame_analyses
-                logger.info(f"Frame analysis completed: {len(frame_analyses)} frames")
-            finally:
-                # Unload vision model to free VRAM
+            frame_analyses = await asyncio.to_thread(
+                self.vision_service.analyze_frames, frame_paths
+            )
+            task.frame_analyses = frame_analyses
+            logger.info(f"Frame analysis completed: {len(frame_analyses)} frames")
+
+            # Unload vision model to free VRAM (only if not keeping in memory)
+            if not settings.MODELS_STAY_IN_MEMORY:
                 await asyncio.to_thread(self.vision_service.unload_model)
                 await asyncio.to_thread(clear_vram)
 
@@ -166,33 +216,32 @@ class VideoPipeline:
                 "Segmenting content and generating quizzes",
             )
             await DBUpdater.set_stage_progress(task_id, "Generating quizzes", 70.0)
-            try:
-                segments = await asyncio.to_thread(
-                    self.llm_service.segment_and_generate_quizzes,
-                    transcription,
-                    frame_analyses,
-                    metadata.duration,
-                    language,
-                )
-                task.segments = segments
-                logger.info(f"Generated {len(segments)} segments with quizzes")
+            segments = await asyncio.to_thread(
+                self.llm_service.segment_and_generate_quizzes,
+                transcription,
+                frame_analyses,
+                metadata.duration,
+                language,
+            )
+            task.segments = segments
+            logger.info(f"Generated {len(segments)} segments with quizzes")
 
-                # Generate video title
-                logger.info("Generating video title")
-                video_title = await asyncio.to_thread(
-                    self.llm_service.generate_video_title,
-                    transcription,
-                    frame_analyses,
-                    metadata.duration,
-                    language,
-                )
-                logger.info(f"Generated video title: {video_title}")
+            # Generate video title
+            logger.info("Generating video title")
+            video_title = await asyncio.to_thread(
+                self.llm_service.generate_video_title,
+                transcription,
+                frame_analyses,
+                metadata.duration,
+                language,
+            )
+            logger.info(f"Generated video title: {video_title}")
 
-                # Update task with video title in database
-                await DBUpdater.update_video_title(task_id, video_title)
+            # Update task with video title in database
+            await DBUpdater.update_video_title(task_id, video_title)
 
-            finally:
-                # Unload LLM model to free VRAM
+            # Unload LLM model to free VRAM (only if not keeping in memory)
+            if not settings.MODELS_STAY_IN_MEMORY:
                 await asyncio.to_thread(self.llm_service.unload_model)
                 await asyncio.to_thread(clear_vram)
 
@@ -237,14 +286,15 @@ class VideoPipeline:
             raise
 
         finally:
-            # Ensure all models are unloaded
-            try:
-                await asyncio.to_thread(self.asr_service.unload_model)
-                await asyncio.to_thread(self.vision_service.unload_model)
-                await asyncio.to_thread(self.llm_service.unload_model)
-                await asyncio.to_thread(clear_vram)
-            except Exception as e:
-                logger.warning(f"Error during model cleanup: {e}")
+            # Ensure all models are unloaded (only if not keeping in memory)
+            if not settings.MODELS_STAY_IN_MEMORY:
+                try:
+                    await asyncio.to_thread(self.asr_service.unload_model)
+                    await asyncio.to_thread(self.vision_service.unload_model)
+                    await asyncio.to_thread(self.llm_service.unload_model)
+                    await asyncio.to_thread(clear_vram)
+                except Exception as e:
+                    logger.warning(f"Error during model cleanup: {e}")
 
     async def _update_task_status(
         self,
@@ -352,7 +402,9 @@ async def process_video_from_file(task_id: str, file_path: Path, language: str =
     return await pipeline.process_video(task_id, file_path, language=language)
 
 
-async def process_video_from_url(task_id: str, url: str, language: str = "ru") -> ProcessingTask:
+async def process_video_from_url(
+    task_id: str, url: str, language: str = "ru"
+) -> ProcessingTask:
     """
     Process video from URL (YouTube, etc.)
 
@@ -398,7 +450,9 @@ async def process_video_from_url(task_id: str, url: str, language: str = "ru") -
 
         # Process the downloaded video
         pipeline = VideoPipeline()
-        return await pipeline.process_video(task_id, video_path, source_url=url, language=language)
+        return await pipeline.process_video(
+            task_id, video_path, source_url=url, language=language
+        )
 
     except Exception as e:
         logger.error(f"Failed to process video from URL: {e}")

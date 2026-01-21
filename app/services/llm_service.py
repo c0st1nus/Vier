@@ -117,6 +117,7 @@ class LLMService:
         transcription: List[TranscriptionSegment],
         frame_analyses: List[FrameAnalysis],
         video_duration: float,
+        language: str = "ru",
     ) -> str:
         """
         Generate a descriptive title for the video based on its content
@@ -520,6 +521,7 @@ Response:"""
         transcription: List[TranscriptionSegment],
         frame_analyses: List[FrameAnalysis],
         video_duration: float,
+        language: str = "ru",
     ) -> List[VideoSegment]:
         """
         Complete pipeline: segment video and generate multilingual quizzes for each segment

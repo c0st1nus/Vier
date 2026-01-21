@@ -298,6 +298,69 @@ Respond with ONLY valid JSON:
             logger.error(f"Quiz generation failed: {e}")
             return []
 
+    def segment_and_generate_quizzes(
+        self,
+        transcript_segments: List[TranscriptionSegment],
+        frame_analyses: List[FrameAnalysis],
+        video_duration: float,
+        language: str = "en",
+        num_quizzes_per_segment: int = 3,
+    ) -> List[VideoSegment]:
+        """
+        Segment video and generate quizzes for each segment using vLLM
+
+        Args:
+            transcript_segments: List of transcription segments
+            frame_analyses: List of frame analyses
+            video_duration: Total video duration
+            language: Detected language code
+            num_quizzes_per_segment: Number of quizzes per segment
+
+        Returns:
+            List of VideoSegments with quizzes
+        """
+        logger.info("Segmenting video and generating quizzes")
+
+        # Step 1: Segment the video
+        segments = self.segment_video_content(
+            transcript_segments, frame_analyses, video_duration
+        )
+
+        # Step 2: Generate quizzes for each segment
+        for segment in segments:
+            # Get transcript text for this segment
+            segment_transcript = " ".join(
+                [
+                    seg.text
+                    for seg in transcript_segments
+                    if seg.start >= segment.start_time and seg.end <= segment.end_time
+                ]
+            )
+
+            # Get frame descriptions for this segment
+            segment_frames = [
+                f"[{fa.timestamp:.1f}s] {fa.description}"
+                for fa in frame_analyses
+                if segment.start_time <= fa.timestamp <= segment.end_time
+            ]
+            frame_descriptions = "\n".join(segment_frames)
+
+            # Generate quizzes
+            quizzes = self.generate_quiz_for_segment(
+                segment,
+                segment_transcript,
+                frame_descriptions,
+                language,
+                num_quizzes_per_segment,
+            )
+
+            segment.quizzes = quizzes
+
+        logger.info(
+            f"Completed segmentation and quiz generation for {len(segments)} segments"
+        )
+        return segments
+
     def generate_video_title(
         self, transcript_text: str, frame_descriptions: str, language: str = "en"
     ) -> str:

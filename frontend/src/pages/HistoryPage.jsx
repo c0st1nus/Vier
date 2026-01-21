@@ -23,7 +23,7 @@ const HistoryPage = () => {
     try {
       const statusParam = filter !== "all" ? `?status=${filter}` : "";
       const response = await fetch(
-        `http://localhost:8000/api/history${statusParam}`,
+        `http://51.20.65.17:2135/api/history${statusParam}`,
       );
 
       if (!response.ok) {
@@ -49,7 +49,7 @@ const HistoryPage = () => {
 
     try {
       const response = await fetch(
-        `http://localhost:8000/api/video/${taskId}`,
+        `http://51.20.65.17:2135/api/video/${taskId}`,
         {
           method: "DELETE",
         },
@@ -72,7 +72,7 @@ const HistoryPage = () => {
 
     try {
       const response = await fetch(
-        `http://localhost:8000/api/video/${taskId}/share`,
+        `http://51.20.65.17:2135/api/video/${taskId}/share`,
         {
           method: "POST",
         },

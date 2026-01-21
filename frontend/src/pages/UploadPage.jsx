@@ -3,7 +3,7 @@ import React, { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "./UploadPage.css";
 
-const API_BASE_URL = "http://localhost:8000/api";
+const API_BASE_URL = "http://51.20.65.17:2135/api";
 
 const UploadPage = () => {
   const navigate = useNavigate();

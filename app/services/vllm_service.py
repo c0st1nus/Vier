@@ -191,10 +191,10 @@ Respond with ONLY valid JSON (no markdown, no explanations):
             segments = []
             for seg_data in segments_data:
                 segment = VideoSegment(
-                    title=seg_data.get("title", "Untitled Segment"),
                     start_time=float(seg_data.get("start_time", 0)),
                     end_time=float(seg_data.get("end_time", video_duration)),
-                    description=seg_data.get("description", ""),
+                    translations={},
+                    keywords=[],
                     quizzes=[],
                 )
                 segments.append(segment)
@@ -207,10 +207,10 @@ Respond with ONLY valid JSON (no markdown, no explanations):
             # Fallback: create single segment
             return [
                 VideoSegment(
-                    title="Full Video",
                     start_time=0.0,
                     end_time=video_duration,
-                    description=transcript_text[:200] if transcript_text else "",
+                    translations={},
+                    keywords=[],
                     quizzes=[],
                 )
             ]

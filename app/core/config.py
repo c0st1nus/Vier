@@ -95,6 +95,9 @@ class BaseAppSettings(BaseSettings):
     # YouTube download settings
     YT_DLP_FORMAT: str = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
     YT_DLP_MAX_FILESIZE: str = "500M"
+    YT_DLP_COOKIES_FILE: Optional[str] = (
+        None  # Path to YouTube cookies file (e.g., "youtube_cookies.txt")
+    )
 
     model_config = ConfigDict(
         env_file=".env",

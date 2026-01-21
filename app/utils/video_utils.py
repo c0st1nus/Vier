@@ -69,6 +69,22 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
     url = url.replace("\\", "")
     logger.info(f"Sanitized URL: {url}")
 
+    # Check for cookies file
+    cookies_file = None
+    has_cookies_file = False
+
+    if settings.YT_DLP_COOKIES_FILE:
+        cookies_file = Path(settings.YT_DLP_COOKIES_FILE)
+        if not cookies_file.is_absolute():
+            cookies_file = settings.BASE_DIR / settings.YT_DLP_COOKIES_FILE
+    else:
+        # Default location
+        cookies_file = settings.BASE_DIR / "youtube_cookies.txt"
+
+    if cookies_file and cookies_file.exists():
+        has_cookies_file = True
+        logger.info(f"Using cookies file: {cookies_file}")
+
     # Validate YouTube URL
     youtube_patterns = [
         r"(?:https?://)?(?:www\.)?youtube\.com/watch\?v=[\w-]+",
@@ -91,11 +107,55 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
         "no_warnings": False,
         "extract_flat": False,
         "noplaylist": True,  # Don't download playlists
+        # Anti-bot detection options
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"],
+                "player_skip": ["webpage", "configs"],
+            }
+        },
+        # Additional headers to appear more like a real browser
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-us,en;q=0.5",
+            "Sec-Fetch-Mode": "navigate",
+        },
     }
+
+    # Add cookies if available
+    if has_cookies_file:
+        ydl_opts["cookiefile"] = str(cookies_file)
+    else:
+        # Try to use browser cookies as fallback
+        try:
+            ydl_opts["cookiesfrombrowser"] = ("firefox",)
+        except Exception as e:
+            logger.warning(f"Could not load browser cookies: {e}")
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore
             logger.info(f"Downloading video from: {url}")
+
+            # Try to extract info first without downloading to validate
+            try:
+                info = ydl.extract_info(url, download=False)
+                if not info:
+                    raise ValueError("No video information retrieved from URL")
+
+                # Check if it's a playlist
+                if info.get("_type") == "playlist":
+                    raise ValueError(
+                        "URL points to a playlist, not a single video. Please provide a direct video URL."
+                    )
+
+                logger.info(
+                    f"Video info extracted: {info.get('title', 'Unknown title')}"
+                )
+            except Exception as e:
+                logger.warning(f"Could not extract video info without download: {e}")
+
+            # Now download the video
             info = ydl.extract_info(url, download=True)
 
             # Check if we got actual video info
@@ -139,6 +199,21 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
             )
             return video_path
 
+    except yt_dlp.utils.DownloadError as e:
+        error_msg = str(e)
+        logger.error(f"yt-dlp download error: {error_msg}")
+
+        # Provide helpful error message
+        if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
+            raise Exception(
+                f"YouTube bot detection triggered. Please:\n"
+                f"1. Export cookies from your browser using a browser extension\n"
+                f"2. Save cookies as 'youtube_cookies.txt' in the project root\n"
+                f"3. Or install 'yt-dlp[default]' for better browser integration\n"
+                f"Original error: {error_msg}"
+            )
+        else:
+            raise Exception(f"Video download failed: {error_msg}")
     except Exception as e:
         logger.error(f"Failed to download video: {e}")
         raise Exception(f"Video download failed: {str(e)}")

@@ -117,19 +117,29 @@ class ASRService:
                 },
             }
 
-            # Add batch_size if > 1 (newer versions of faster-whisper)
+            # Try with batch_size first (newer versions of faster-whisper)
             if (
                 hasattr(settings, "WHISPER_BATCH_SIZE")
                 and settings.WHISPER_BATCH_SIZE > 1
             ):
-                try:
-                    transcribe_kwargs["batch_size"] = settings.WHISPER_BATCH_SIZE
-                except TypeError:
-                    logger.warning(
-                        "batch_size parameter not supported in this version of faster-whisper"
-                    )
+                transcribe_kwargs["batch_size"] = settings.WHISPER_BATCH_SIZE
 
-            segments, info = self.model.transcribe(str(audio_path), **transcribe_kwargs)
+            try:
+                segments, info = self.model.transcribe(
+                    str(audio_path), **transcribe_kwargs
+                )
+            except TypeError as e:
+                if "batch_size" in str(e):
+                    # batch_size not supported, retry without it
+                    logger.warning(
+                        "batch_size parameter not supported in this version of faster-whisper, retrying without it"
+                    )
+                    transcribe_kwargs.pop("batch_size", None)
+                    segments, info = self.model.transcribe(
+                        str(audio_path), **transcribe_kwargs
+                    )
+                else:
+                    raise
 
             # Log detected language
             logger.info(

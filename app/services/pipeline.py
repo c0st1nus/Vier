@@ -17,6 +17,10 @@ from app.services.asr_service import ASRService
 from app.services.db_updater import DBUpdater
 from app.services.llm_service import LLMService
 from app.services.vision_service import VisionService
+
+# Import vLLM service if enabled
+if settings.USE_VLLM:
+    from app.services.vllm_service import VLLMService
 from app.utils.video_utils import (
     cleanup_temp_files,
     clear_vram,
@@ -48,7 +52,15 @@ class VideoPipeline:
     def __init__(self):
         self.asr_service = ASRService()
         self.vision_service = VisionService()
-        self.llm_service = LLMService()
+
+        # Use vLLM or Ollama based on configuration
+        if settings.USE_VLLM:
+            logger.info("Using vLLM for LLM inference (faster)")
+            self.llm_service = VLLMService()
+        else:
+            logger.info("Using Ollama for LLM inference")
+            self.llm_service = LLMService()
+
         self.models_preloaded = False
 
         # Preload all models if configured

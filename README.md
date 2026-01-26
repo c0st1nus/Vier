@@ -139,7 +139,8 @@ huggingface-cli download Qwen/Qwen2-VL-2B-Instruct --local-dir ./models/qwen2-vl
 # Start API server
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Server will be available at http://16.171.11.38:2135
+# Server will be available at http://16.171.11.38:
+35
 # API docs: http://16.171.11.38:2135/docs
 ```
 

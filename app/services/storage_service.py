@@ -361,6 +361,46 @@ class StorageService:
             logger.error(f"Failed to get file metadata: {e}")
             return None
 
+    async def stream_file(self, object_key: str, chunk_size: int = 1024 * 1024):
+        """
+        Stream a file from S3 in chunks.
+
+        Args:
+            object_key: S3 object key
+            chunk_size: Size of chunks to stream (default: 1MB)
+
+        Yields:
+            File chunks as bytes
+        """
+        if not settings.S3_ENABLED:
+            # Stream local file
+            local_path = Path(object_key)
+            if local_path.exists():
+                with open(local_path, "rb") as f:
+                    while chunk := f.read(chunk_size):
+                        yield chunk
+            return
+
+        try:
+            async with self.session.client(
+                "s3",
+                endpoint_url=self.endpoint_url,
+                aws_access_key_id=self.access_key,
+                aws_secret_access_key=self.secret_key,
+                region_name=self.region,
+                use_ssl=self.use_ssl,
+            ) as s3:
+                response = await s3.get_object(Bucket=self.bucket_name, Key=object_key)
+                body = response["Body"]
+                async for chunk in body.content.iter_chunked(chunk_size):
+                    yield chunk
+
+                logger.info(f"Streamed file from S3: {object_key}")
+
+        except Exception as e:
+            logger.error(f"Failed to stream file from S3: {e}")
+            raise
+
     def get_object_key_for_task(self, task_id: str, filename: str) -> str:
         """
         Generate S3 object key for a task video.

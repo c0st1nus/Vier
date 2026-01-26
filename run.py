@@ -6,16 +6,20 @@ This script starts the FastAPI server with proper configuration.
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
+
+import uvicorn
+
+from app.core.config import settings
+
+os.environ.setdefault("YT_DLP_JS_RUNTIME", "node")
 
 # Add the project root to Python path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-import uvicorn
-
-from app.core.config import settings
 
 # Configure logging
 logging.basicConfig(

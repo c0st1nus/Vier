@@ -16,6 +16,7 @@ from app.schemas.models import (
 from app.services.asr_service import ASRService
 from app.services.db_updater import DBUpdater
 from app.services.llm_service import LLMService
+from app.services.storage_service import storage_service
 from app.services.vision_service import VisionService
 from app.services.websocket_manager import websocket_manager
 
@@ -295,6 +296,9 @@ class VideoPipeline:
                 video_metadata=video_metadata_dict,
             )
 
+            logger.info(
+                f"Sending 'completed' WebSocket event for task {task_id} with {len(segments_json)} segments"
+            )
             await websocket_manager.send_to_task(
                 task_id,
                 {
@@ -303,10 +307,92 @@ class VideoPipeline:
                     "message": "Video processing completed",
                 },
             )
+            logger.info(
+                f"'completed' WebSocket event sent successfully for task {task_id}"
+            )
 
-            # Cleanup temporary files
+            # Upload video to S3 if enabled (before cleanup)
+            if settings.S3_ENABLED and video_path.exists():
+                try:
+                    logger.info(f"Uploading video to S3 for task {task_id}")
+                    s3_key = storage_service.get_object_key_for_task(
+                        task_id, video_path.name
+                    )
+
+                    # Detect content type
+                    ext = video_path.suffix.lower()
+                    content_type_map = {
+                        ".mp4": "video/mp4",
+                        ".avi": "video/x-msvideo",
+                        ".mov": "video/quicktime",
+                        ".mkv": "video/x-matroska",
+                        ".webm": "video/webm",
+                        ".flv": "video/x-flv",
+                    }
+                    content_type = content_type_map.get(ext, "video/mp4")
+
+                    await storage_service.upload_file(
+                        video_path,
+                        s3_key,
+                        content_type=content_type,
+                        metadata={"task_id": task_id},
+                    )
+                    logger.info(f"Video uploaded to S3: {s3_key}")
+
+                    # Update database with S3 path
+                    from uuid import UUID
+
+                    from sqlalchemy import select, update
+
+                    from app.db.models import Video
+                    from app.db.session import AsyncSessionLocal
+                    from app.services.task_service import TaskService
+
+                    async with AsyncSessionLocal() as db:
+                        # Update old Task model
+                        task_service = TaskService(db, None)
+                        await task_service.update_task_path(
+                            task_id=task_id,
+                            video_path=s3_key,
+                            file_size=video_path.stat().st_size,
+                            original_filename=video_path.name,
+                        )
+
+                        # Update new Video model
+                        try:
+                            task_uuid = UUID(task_id)
+                            result = await db.execute(
+                                select(Video).where(Video.task_id == task_uuid)
+                            )
+                            video = result.scalar_one_or_none()
+                            if video:
+                                await db.execute(
+                                    update(Video)
+                                    .where(Video.task_id == task_uuid)
+                                    .values(file_path=s3_key)
+                                )
+                                await db.commit()
+                                logger.info(
+                                    f"Updated Video model with S3 path: {s3_key}"
+                                )
+                        except Exception as e:
+                            logger.error(f"Failed to update Video model: {e}")
+
+                    logger.info(f"Updated database with S3 path: {s3_key}")
+                except Exception as e:
+                    logger.error(f"Failed to upload video to S3: {e}")
+                    logger.warning("Video will remain in local storage")
+
+            # Cleanup temporary files (including video if uploaded to S3)
             logger.info("Cleaning up temporary files")
-            await asyncio.to_thread(cleanup_temp_files, audio_path, frames_dir)
+            if settings.S3_ENABLED and video_path.exists():
+                # Video was uploaded to S3, safe to delete local copy
+                await asyncio.to_thread(
+                    cleanup_temp_files, audio_path, frames_dir, video_path
+                )
+            else:
+                # Keep video locally if S3 is disabled or upload failed
+                await asyncio.to_thread(cleanup_temp_files, audio_path, frames_dir)
 
             logger.info(f"Pipeline completed successfully for task {task_id}")
             return task

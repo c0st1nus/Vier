@@ -6,6 +6,10 @@
 // - Message routing between content script and side panel
 // - Minimal in-memory state cache (current video/task, segments, answers)
 
+console.log("========================================");
+console.log("BACKGROUND.JS LOADED");
+console.log("========================================");
+
 const DEFAULT_BACKEND_URL = "http://16.171.11.38:2135";
 
 const state = {
@@ -22,12 +26,15 @@ const state = {
   ws: null,
   wsTaskId: null,
   wsReconnectTimer: null,
+  wsPingTimer: null,
 };
 
+console.log("Initializing background script, state:", state);
 const ready = loadStoredState();
 
 // ---------- Storage Helpers ----------
 async function loadStoredState() {
+  console.log("Loading stored state from chrome.storage...");
   const stored =
     (await chrome.storage.local.get([
       "access_token",
@@ -46,7 +53,9 @@ async function loadStoredState() {
   const storedBackend = stored.backend_url;
   if (storedBackend && storedBackend.includes("localhost")) {
     state.backendUrl = "http://16.171.11.38:2135";
-    await chrome.storage.local.set({ backend_url: "http://16.171.11.38:2135" });
+    await chrome.storage.local.set({
+      backend_url: "http://16.171.11.38:2135",
+    });
   } else {
     state.backendUrl = storedBackend || DEFAULT_BACKEND_URL;
   }
@@ -60,6 +69,11 @@ async function loadStoredState() {
       state.segmentsByTask.set(taskId, Array.isArray(segs) ? segs : []);
     });
   }
+  console.log("Stored state loaded:", {
+    user: state.user?.email,
+    currentTaskId: state.currentTaskId,
+    segmentsCount: state.segmentsByTask.size,
+  });
 }
 
 async function persistSessionState() {
@@ -243,7 +257,9 @@ async function segmentReview(segmentId) {
 }
 
 async function segmentRetake(segmentId) {
-  return apiFetch(`/api/quiz/segment/${segmentId}/retake`, { method: "POST" });
+  return apiFetch(`/api/quiz/segment/${segmentId}/retake`, {
+    method: "POST",
+  });
 }
 
 // ---------- WebSocket ----------
@@ -258,46 +274,105 @@ function buildWsUrl(taskId) {
 }
 
 function openWebSocket(taskId) {
-  if (state.ws && state.wsTaskId === taskId) return;
+  console.log("========================================");
+  console.log("OPENING WEBSOCKET FOR TASK:", taskId);
+  console.log("========================================");
+
+  if (state.ws && state.wsTaskId === taskId) {
+    console.log("WebSocket already connected to this task, skipping");
+    return;
+  }
   closeWebSocket();
 
   const wsUrl = buildWsUrl(taskId);
+  console.log("WebSocket URL:", wsUrl);
   const ws = new WebSocket(wsUrl);
   state.ws = ws;
   state.wsTaskId = taskId;
 
   ws.onopen = () => {
-    console.info("WS connected", taskId);
+    console.log("========================================");
+    console.log("WEBSOCKET OPENED:", taskId);
+    console.log("========================================");
     sendBroadcast({ channel: "ws", type: "connected", taskId });
+    startWebSocketPing();
   };
 
   ws.onmessage = (event) => {
+    console.log("========================================");
+    console.log("WEBSOCKET MESSAGE RECEIVED:", taskId);
+    console.log("Raw data:", event.data);
+    console.log("========================================");
     let data = null;
     try {
       data = JSON.parse(event.data);
+      console.log("Parsed message:", data);
     } catch (e) {
-      console.warn("WS parse failed", e);
+      console.error("WS parse failed", taskId, e, event.data);
       return;
     }
-    handleWsEvent(taskId, data);
+    try {
+      handleWsEvent(taskId, data);
+      console.log("WS message handled successfully");
+    } catch (e) {
+      console.error("WS handleWsEvent failed", taskId, e);
+    }
   };
 
-  ws.onclose = () => {
-    console.info("WS closed", taskId);
+  ws.onclose = (event) => {
+    console.log("========================================");
+    console.log("WEBSOCKET CLOSED:", taskId);
+    console.log("Code:", event.code);
+    console.log("Reason:", event.reason);
+    console.log("Clean:", event.wasClean);
+    console.log("========================================");
     sendBroadcast({ channel: "ws", type: "disconnected", taskId });
+    stopWebSocketPing();
     if (state.wsTaskId === taskId) {
       scheduleReconnect(taskId);
     }
   };
 
   ws.onerror = (err) => {
-    console.error("WS error", err);
-    ws.close();
+    console.log("========================================");
+    console.error("WEBSOCKET ERROR:", taskId);
+    console.error("Error:", err);
+    console.error("ReadyState:", ws.readyState);
+    console.log("========================================");
+    // Don't close here - let onclose handle it
   };
+
+  console.log("WebSocket handlers attached, waiting for connection...");
+}
+
+function startWebSocketPing() {
+  stopWebSocketPing();
+  // Send ping every 15 seconds to keep connection alive
+  state.wsPingTimer = setInterval(() => {
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      try {
+        state.ws.send(JSON.stringify({ type: "ping" }));
+        console.debug("WS ping sent");
+      } catch (e) {
+        console.warn("WS ping failed", e);
+      }
+    }
+  }, 15000);
+}
+
+function stopWebSocketPing() {
+  if (state.wsPingTimer) {
+    clearInterval(state.wsPingTimer);
+    state.wsPingTimer = null;
+  }
 }
 
 function handleWsEvent(taskId, payload) {
   const { event } = payload || {};
+  console.log("========================================");
+  console.log("HANDLING WS EVENT:", event, "for task:", taskId);
+  console.log("Payload:", payload);
+  console.log("========================================");
   switch (event) {
     case "segment_ready":
       if (payload.segment) {
@@ -307,20 +382,72 @@ function handleWsEvent(taskId, payload) {
         persistSessionState();
       }
       break;
-    case "progress":
     case "completed":
+      console.info(
+        "Background: task completed, keeping WebSocket alive for final messages",
+      );
+      // Keep WebSocket open briefly to ensure all messages are received
+      setTimeout(() => {
+        if (state.wsTaskId === taskId) {
+          console.info(
+            "Background: closing WebSocket after completion",
+            taskId,
+          );
+          closeWebSocket();
+        }
+      }, 5000); // Keep alive for 5 seconds after completion
+      break;
+    case "progress":
+      console.log("BACKGROUND: Processing 'progress' event");
+      console.log("Progress details:", {
+        progress: payload.progress,
+        current_stage: payload.current_stage,
+        status: payload.status,
+        message: payload.message,
+      });
+      break;
     case "error":
+      console.error("BACKGROUND: Processing 'error' event");
+      console.error("Error details:", payload);
+      break;
     default:
+      console.log("BACKGROUND: Unknown event type:", event);
       break;
   }
+
+  console.log("BACKGROUND: About to sendBroadcast for event:", event);
   sendBroadcast({ channel: "ws", taskId, payload });
+  console.log("BACKGROUND: sendBroadcast call completed for event:", event);
 }
 
-function scheduleReconnect(taskId) {
+async function scheduleReconnect(taskId) {
   if (state.wsReconnectTimer) return;
-  state.wsReconnectTimer = setTimeout(() => {
+  state.wsReconnectTimer = setTimeout(async () => {
     state.wsReconnectTimer = null;
-    openWebSocket(taskId);
+
+    // Check if task is still processing before reconnecting
+    try {
+      const statusRes = await apiFetch(`/api/video/${taskId}/status`, {
+        method: "GET",
+      });
+      const status = statusRes?.status || statusRes?.task_status;
+
+      if (status === "processing" || status === "pending") {
+        console.info("Reconnecting WebSocket for task:", taskId);
+        openWebSocket(taskId);
+      } else {
+        console.info(
+          "Task no longer processing, skipping reconnection:",
+          taskId,
+          "status:",
+          status,
+        );
+      }
+    } catch (e) {
+      console.error("Failed to check task status before reconnect:", e);
+      // Reconnect anyway in case of error
+      openWebSocket(taskId);
+    }
   }, 2000);
 }
 
@@ -330,6 +457,7 @@ function closeWebSocket() {
   }
   state.ws = null;
   state.wsTaskId = null;
+  stopWebSocketPing();
   if (state.wsReconnectTimer) {
     clearTimeout(state.wsReconnectTimer);
     state.wsReconnectTimer = null;
@@ -338,16 +466,33 @@ function closeWebSocket() {
 
 // ---------- Messaging ----------
 function sendBroadcast(message) {
+  console.log("========================================");
+  console.log("BACKGROUND sendBroadcast called");
+  console.log("Message to broadcast:", message);
+  console.log("Message channel:", message?.channel);
+  console.log("Message type:", message?.type);
+  console.log("Message payload:", message?.payload);
+  console.log("========================================");
+
   try {
-    chrome.runtime.sendMessage(message, () => {
+    chrome.runtime.sendMessage(message, (response) => {
       // Ignore missing listeners or closed ports
       const err = chrome.runtime.lastError;
       if (err) {
+        console.warn(
+          "BACKGROUND sendBroadcast: chrome.runtime.lastError:",
+          err.message,
+        );
         return;
       }
+      console.log("BACKGROUND sendBroadcast: message delivered successfully");
+      if (response) {
+        console.log("BACKGROUND sendBroadcast: response:", response);
+      }
     });
-  } catch (_e) {
-    // Ignore: sendMessage can throw in MV2 if no listeners
+  } catch (e) {
+    console.error("BACKGROUND sendBroadcast: exception thrown:", e.message);
+    console.error("BACKGROUND sendBroadcast: stack:", e.stack);
   }
 }
 
@@ -377,7 +522,10 @@ function sendToYoutubeTabs(message) {
 }
 
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-  console.info("runtime.onMessage", request?.type, request?.payload);
+  console.log("========================================");
+  console.log("MESSAGE RECEIVED:", request?.type);
+  console.log("Payload:", request?.payload);
+  console.log("========================================");
   const handlerMap = {
     "config:get": async () => ({
       backendUrl: state.backendUrl,
@@ -395,7 +543,9 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     "config:set": async (payload) => {
       if (payload.backendUrl) {
         state.backendUrl = payload.backendUrl;
-        await chrome.storage.local.set({ backend_url: payload.backendUrl });
+        await chrome.storage.local.set({
+          backend_url: payload.backendUrl,
+        });
       }
       if (payload.language) {
         state.language = payload.language;
@@ -419,7 +569,19 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
         state.currentTaskId = res.task_id;
         state.currentVideoUrl = url;
         await persistSessionState();
-        openWebSocket(res.task_id);
+
+        // Only open WebSocket if not already connected or if it's a different task
+        if (
+          !state.ws ||
+          state.wsTaskId !== res.task_id ||
+          state.ws.readyState !== WebSocket.OPEN
+        ) {
+          console.info("Opening WebSocket for checked video:", res.task_id);
+          openWebSocket(res.task_id);
+        } else {
+          console.info("WebSocket already connected to task:", res.task_id);
+        }
+
         sendBroadcast({
           channel: "video",
           type: "current",
@@ -435,7 +597,19 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
         state.currentTaskId = res.task_id;
         state.currentVideoUrl = url;
         await persistSessionState();
-        openWebSocket(res.task_id);
+
+        // Only open WebSocket if not already connected or if it's a different task
+        if (
+          !state.ws ||
+          state.wsTaskId !== res.task_id ||
+          state.ws.readyState !== WebSocket.OPEN
+        ) {
+          console.info("Opening WebSocket for uploaded video:", res.task_id);
+          openWebSocket(res.task_id);
+        } else {
+          console.info("WebSocket already connected to task:", res.task_id);
+        }
+
         sendBroadcast({
           channel: "video",
           type: "current",
@@ -446,6 +620,9 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       return res;
     },
     "video:segments": async ({ taskId }) => getSegments(taskId),
+    "video:status": async ({ taskId }) => {
+      return apiFetch(`/api/video/${taskId}/status`, { method: "GET" });
+    },
     "quiz:answer": async ({ quizId, selectedIndex }) =>
       submitAnswer(quizId, selectedIndex),
     "quiz:status": async ({ segmentId }) => segmentStatus(segmentId),
@@ -454,6 +631,16 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     "user:profile": async () => fetchUserProfile(),
     "user:stats": async () => fetchUserStats(),
     "ws:connect": async ({ taskId }) => {
+      console.info("ws:connect handler called for taskId:", taskId);
+      // Check if already connected to this task
+      if (
+        state.ws &&
+        state.wsTaskId === taskId &&
+        state.ws.readyState === WebSocket.OPEN
+      ) {
+        console.info("WebSocket already connected to task:", taskId);
+        return { ok: true, already_connected: true };
+      }
       openWebSocket(taskId);
       return { ok: true };
     },
@@ -496,4 +683,53 @@ chrome.runtime.onInstalled.addListener(async () => {
   });
 });
 
-loadStoredState();
+// Auto-reconnect WebSocket on startup if there's an active processing task
+async function autoReconnectOnStartup() {
+  await ready;
+
+  if (!state.currentTaskId) {
+    console.info("No active task on startup");
+    return;
+  }
+
+  console.info("Checking task status on startup:", state.currentTaskId);
+
+  try {
+    // Check if task is still processing
+    const statusRes = await apiFetch(
+      `/api/video/${state.currentTaskId}/status`,
+      { method: "GET" },
+    );
+
+    if (!statusRes) {
+      console.warn("Failed to fetch task status on startup");
+      return;
+    }
+
+    const status = statusRes.status || statusRes.task_status;
+    console.info("Task status on startup:", status);
+
+    if (status === "processing" || status === "pending") {
+      console.info(
+        "Reconnecting WebSocket for active task:",
+        state.currentTaskId,
+      );
+      openWebSocket(state.currentTaskId);
+    } else {
+      console.info("Task is not processing, no reconnection needed");
+    }
+  } catch (e) {
+    console.error("Failed to check task status on startup:", e);
+  }
+}
+
+console.log("========================================");
+console.log("STARTING BACKGROUND SCRIPT INITIALIZATION");
+console.log("========================================");
+loadStoredState().then(() => {
+  console.log("State loaded, checking for auto-reconnect...");
+  autoReconnectOnStartup();
+});
+console.log("========================================");
+console.log("BACKGROUND SCRIPT READY");
+console.log("========================================");

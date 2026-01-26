@@ -61,16 +61,17 @@ class ApiService {
   /**
    * Submit a video URL
    * @param {string} url - The video URL (e.g., YouTube)
+   * @param {string} language - Language for quiz generation (en, ru, kk)
    * @returns {Promise<{task_id: string, status: string}>}
    */
-  async uploadUrl(url) {
+  async uploadUrl(url, language = "en") {
     try {
       const response = await fetch(`${this.baseUrl}/api/video/upload/url`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, language }),
       });
 
       if (!response.ok) {

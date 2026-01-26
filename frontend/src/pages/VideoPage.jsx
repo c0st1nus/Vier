@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import ProcessingPage from "./ProcessingPage";
 import ResultsPage from "./ResultsPage";
 
-const API_BASE_URL = "http://51.20.65.17:2135/api";
+const API_BASE_URL = "http://16.171.11.38:2135/api";
 
 function VideoPage() {
   const { taskId } = useParams();
@@ -65,7 +65,7 @@ function VideoPage() {
     const fetchSegments = async () => {
       try {
         const response = await fetch(
-          `${API_BASE_URL}/video/${taskId}/segments`
+          `${API_BASE_URL}/video/${taskId}/segments`,
         );
 
         if (!response.ok) {
@@ -105,7 +105,10 @@ function VideoPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="container" style={{ textAlign: "center", marginTop: "4rem" }}>
+      <div
+        className="container"
+        style={{ textAlign: "center", marginTop: "4rem" }}
+      >
         <div className="spinner" style={{ margin: "0 auto 1rem" }}></div>
         <p>Загрузка данных...</p>
       </div>

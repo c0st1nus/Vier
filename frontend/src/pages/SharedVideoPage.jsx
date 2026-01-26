@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import ResultsPage from "./ResultsPage";
 
-const API_BASE_URL = "http://51.20.65.17:2135/api";
+const API_BASE_URL = "http://16.171.11.38:2135/api";
 
 function SharedVideoPage() {
   const { shareToken } = useParams();
@@ -15,9 +15,7 @@ function SharedVideoPage() {
   useEffect(() => {
     const fetchSharedVideo = async () => {
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/shared/${shareToken}`
-        );
+        const response = await fetch(`${API_BASE_URL}/shared/${shareToken}`);
 
         if (!response.ok) {
           if (response.status === 404) {
@@ -46,7 +44,10 @@ function SharedVideoPage() {
 
   if (loading) {
     return (
-      <div className="container" style={{ textAlign: "center", marginTop: "4rem" }}>
+      <div
+        className="container"
+        style={{ textAlign: "center", marginTop: "4rem" }}
+      >
         <div className="spinner" style={{ margin: "0 auto 1rem" }}></div>
         <p>Загрузка видео...</p>
       </div>
@@ -106,24 +107,27 @@ function SharedVideoPage() {
   }
 
   // Parse segments if they're in JSON format
-  const segments = Array.isArray(taskData.segments)
-    ? taskData.segments
-    : [];
+  const segments = Array.isArray(taskData.segments) ? taskData.segments : [];
 
   const videoUrl = `${API_BASE_URL}/video/${taskData.id}/file`;
 
   return (
     <div>
-      <div className="container" style={{ marginBottom: "1rem", paddingTop: "1rem" }}>
-        <div style={{
-          background: "rgba(99, 102, 241, 0.1)",
-          border: "1px solid rgba(99, 102, 241, 0.3)",
-          borderRadius: "8px",
-          padding: "1rem",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.75rem"
-        }}>
+      <div
+        className="container"
+        style={{ marginBottom: "1rem", paddingTop: "1rem" }}
+      >
+        <div
+          style={{
+            background: "rgba(99, 102, 241, 0.1)",
+            border: "1px solid rgba(99, 102, 241, 0.3)",
+            borderRadius: "8px",
+            padding: "1rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.75rem",
+          }}
+        >
           <svg
             width="24"
             height="24"
@@ -140,10 +144,24 @@ function SharedVideoPage() {
             />
           </svg>
           <div style={{ flex: 1 }}>
-            <p style={{ margin: 0, fontSize: "0.875rem", color: "#6366f1", fontWeight: 500 }}>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.875rem",
+                color: "#6366f1",
+                fontWeight: 500,
+              }}
+            >
               Общий доступ
             </p>
-            <p style={{ margin: 0, fontSize: "0.75rem", color: "#64748b", marginTop: "0.25rem" }}>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.75rem",
+                color: "#64748b",
+                marginTop: "0.25rem",
+              }}
+            >
               Кто-то поделился с вами этим видео с интерактивными вопросами
             </p>
           </div>

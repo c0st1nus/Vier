@@ -58,10 +58,21 @@ class WebSocketManager:
             conns = list(self._connections.get(task_id, []))
 
         if not conns:
-            logger.debug("No active connections for task_id=%s; skipping send", task_id)
+            logger.warning(
+                "No active WebSocket connections for task_id=%s; message not sent: %s",
+                task_id,
+                message.get("event", "unknown"),
+            )
             return
 
+        logger.info(
+            "Sending WebSocket message (event=%s) to %d connection(s) for task_id=%s",
+            message.get("event", "unknown"),
+            len(conns),
+            task_id,
+        )
         await asyncio.gather(*(self._safe_send_json(ws, message) for ws in conns))
+        logger.debug("WebSocket message sent successfully to task_id=%s", task_id)
 
     async def broadcast(self, message: Dict[str, Any]) -> None:
         """Broadcast a JSON message to all connected sockets."""

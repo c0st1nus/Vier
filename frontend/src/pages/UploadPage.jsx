@@ -1,12 +1,14 @@
 // Upload Page - Main page for video upload
 import React, { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "../contexts/LanguageContext";
 import "./UploadPage.css";
 
-const API_BASE_URL = "http://51.20.65.17:2135/api";
+const API_BASE_URL = "http://16.171.11.38:2135/api";
 
 const UploadPage = () => {
   const navigate = useNavigate();
+  const { language } = useTranslation();
   const [uploadMode, setUploadMode] = useState("file"); // 'file' or 'url'
   const [url, setUrl] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
@@ -147,12 +149,12 @@ const UploadPage = () => {
         }
 
         // Submit URL
-        const response = await fetch(`${API_BASE_URL}/upload/url`, {
+        const response = await fetch(`${API_BASE_URL}/video/upload/url`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ url }),
+          body: JSON.stringify({ url, language }),
         });
 
         if (!response.ok) {

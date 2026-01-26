@@ -3,7 +3,17 @@
  */
 
 (() => {
-  const qs = (id) => document.getElementById(id);
+  console.log("========================================");
+  console.log("SIDEPANEL SCRIPT LOADING");
+  console.log("========================================");
+
+  const qs = (id) => {
+    const el = document.getElementById(id);
+    console.log(`DOM element '${id}':`, el ? "FOUND" : "NOT FOUND");
+    return el;
+  };
+
+  console.log("Querying DOM elements...");
   const authSection = qs("auth-section");
   const userSection = qs("user-section");
   const settingsSection = qs("settings-section");
@@ -37,6 +47,16 @@
   const statCorrect = qs("stat-correct");
   const statAccuracy = qs("stat-accuracy");
 
+  console.log("========================================");
+  console.log("DOM ELEMENTS INITIALIZATION SUMMARY:");
+  console.log("Critical elements for status updates:");
+  console.log("  statusBadge:", statusBadge ? "✓" : "✗");
+  console.log("  stageLabel:", stageLabel ? "✓" : "✗");
+  console.log("  progressBar:", progressBar ? "✓" : "✗");
+  console.log("  debugStatusEl:", debugStatusEl ? "✓" : "✗");
+  console.log("  debugStageEl:", debugStageEl ? "✓" : "✗");
+  console.log("========================================");
+
   let state = {
     backendUrl: "http://16.171.11.38:2135",
     language: "en",
@@ -44,6 +64,7 @@
     user: null,
     currentTaskId: null,
     segments: [],
+    statusPollInterval: null,
   };
 
   // ---------- Messaging helpers ----------
@@ -63,13 +84,37 @@
 
   // ---------- UI helpers ----------
   function setText(el, text) {
-    if (el) el.textContent = text;
+    console.log("SIDEPANEL setText called:", {
+      element: el,
+      text: text,
+      tagName: el?.tagName,
+      id: el?.id,
+    });
+    if (el) {
+      el.textContent = text;
+      console.log(
+        "SIDEPANEL setText completed, new textContent:",
+        el.textContent,
+      );
+    } else {
+      console.warn("SIDEPANEL setText: element is null/undefined");
+    }
   }
 
   function setProgress(value) {
+    console.log("SIDEPANEL setProgress called with:", value);
+    console.log("progressBar element:", progressBar);
     if (progressBar) {
       const clamped = Math.max(0, Math.min(100, value || 0));
       progressBar.style.width = `${clamped}%`;
+      console.log(
+        "SIDEPANEL setProgress completed, new width:",
+        progressBar.style.width,
+      );
+    } else {
+      console.warn(
+        "SIDEPANEL setProgress: progressBar element is null/undefined",
+      );
     }
   }
 
@@ -155,10 +200,32 @@
   }
 
   function setDebug(progress, stage, status) {
-    if (typeof progress === "number") setProgress(progress);
-    if (debugStatusEl && status) setText(debugStatusEl, status);
-    if (debugStageEl)
-      setText(debugStageEl, stage || debugStageEl.textContent || "Waiting…");
+    console.log("SIDEPANEL setDebug called with:", {
+      progress,
+      stage,
+      status,
+    });
+    console.log("Elements:", {
+      progressBar: progressBar,
+      debugStatusEl: debugStatusEl,
+      debugStageEl: debugStageEl,
+    });
+
+    if (typeof progress === "number") {
+      console.log("SIDEPANEL setDebug: setting progress to", progress);
+      setProgress(progress);
+    }
+    if (debugStatusEl && status) {
+      console.log("SIDEPANEL setDebug: setting debugStatusEl to", status);
+      setText(debugStatusEl, status);
+    }
+    if (debugStageEl) {
+      const stageText = stage || debugStageEl.textContent || "Waiting…";
+      console.log("SIDEPANEL setDebug: setting debugStageEl to", stageText);
+      setText(debugStageEl, stageText);
+    }
+
+    console.log("SIDEPANEL setDebug completed");
   }
 
   function updateUserStats(stats) {
@@ -262,9 +329,18 @@
 
   // ---------- WS updates ----------
   function setStatusProcessing(msg) {
+    console.log("SIDEPANEL setStatusProcessing called with:", msg);
+    console.log("statusBadge element:", statusBadge);
+    console.log("stageLabel element:", stageLabel);
+
     setText(statusBadge, "processing");
     setText(stageLabel, msg || "Processing…");
     setDebug(undefined, msg || "Processing…", "processing");
+    startStatusPolling();
+
+    console.log("SIDEPANEL setStatusProcessing completed");
+    console.log("statusBadge text:", statusBadge?.textContent);
+    console.log("stageLabel text:", stageLabel?.textContent);
   }
 
   function setStatusCompleted(msg) {
@@ -272,50 +348,169 @@
     setProgress(100);
     setText(stageLabel, msg || "Completed");
     setDebug(100, msg || "Completed", "completed");
+    stopStatusPolling();
+  }
+
+  function startStatusPolling() {
+    if (state.statusPollInterval) return;
+    console.info("Starting status polling");
+    state.statusPollInterval = setInterval(async () => {
+      if (!state.currentTaskId) {
+        stopStatusPolling();
+        return;
+      }
+      try {
+        const statusRes = await sendMessage("video:status", {
+          taskId: state.currentTaskId,
+        });
+        if (statusRes?.data) {
+          const status = statusRes.data.status || statusRes.data.task_status;
+          const progress = statusRes.data.progress ?? 0;
+          const stage = statusRes.data.current_stage || "Processing…";
+
+          console.debug("Status poll:", status, progress, stage);
+
+          if (status === "completed") {
+            setStatusCompleted(stage);
+            // Load segments if we don't have them
+            if (!state.segments || !state.segments.length) {
+              const segRes = await sendMessage("video:segments", {
+                taskId: state.currentTaskId,
+              });
+              if (segRes?.data?.segments) {
+                state.segments = segRes.data.segments;
+                renderSegments();
+              }
+            }
+          } else if (status === "failed") {
+            setText(statusBadge, "error");
+            setText(stageLabel, statusRes.data.error_message || "Error");
+            setDebug(0, statusRes.data.error_message || "Error", "error");
+            stopStatusPolling();
+          } else if (status === "processing" || status === "pending") {
+            setDebug(progress, stage, "processing");
+          }
+        }
+      } catch (e) {
+        console.error("Status poll failed:", e);
+      }
+    }, 5000);
+  }
+
+  function stopStatusPolling() {
+    if (state.statusPollInterval) {
+      console.info("Stopping status polling");
+      clearInterval(state.statusPollInterval);
+      state.statusPollInterval = null;
+    }
   }
 
   function handleWsMessage(message) {
+    console.log("========================================");
+    console.log("SIDEPANEL handleWsMessage received");
+    console.log("Message:", message);
+    console.log("========================================");
+
     const { payload, taskId } = message || {};
-    if (!payload) return;
+    if (!payload) {
+      console.warn("sidepanel handleWsMessage: no payload", message);
+      return;
+    }
 
     if (!state.currentTaskId && taskId) state.currentTaskId = taskId;
 
-    switch (payload.event) {
-      case "connected":
-        renderActivity(`WebSocket connected (${taskId})`);
-        setStatusProcessing("Processing…");
-        setDebug(undefined, "Connected", "connected");
-        break;
-      case "segment_ready":
-        if (payload.segment) {
-          state.segments.push(payload.segment);
-          renderSegments();
-          renderActivity(`Segment #${payload.segment.segment_id} ready`);
-          setStatusProcessing("Segments updating…");
-          setDebug(undefined, "Segments updating…", "processing");
-        }
-        break;
-      case "progress":
-        setStatusProcessing(payload.current_stage || "Processing…");
-        setDebug(
-          payload.progress ?? 0,
-          payload.current_stage || "Processing…",
-          payload.status || "processing",
-        );
-        break;
-      case "completed":
-        setStatusCompleted("Completed");
-        setDebug(100, "Completed", "completed");
-        renderActivity("Processing completed");
-        break;
-      case "error":
-        setText(statusBadge, "error");
-        setText(stageLabel, payload.message || "Error");
-        setDebug(0, payload.message || "Error", "error");
-        renderActivity("Processing error");
-        break;
-      default:
-        break;
+    console.log("========================================");
+    console.log("SIDEPANEL handling WS event:", payload.event);
+    console.log("TaskId:", taskId);
+    console.log("Full payload:", payload);
+    console.log("========================================");
+
+    try {
+      switch (payload.event) {
+        case "connected":
+          console.log("SIDEPANEL: Processing 'connected' event");
+          renderActivity(`WebSocket connected (${taskId})`);
+          setStatusProcessing("Processing…");
+          setDebug(undefined, "Connected", "connected");
+          stopStatusPolling(); // Stop polling when WebSocket connects
+          break;
+        case "segment_ready":
+          console.log("SIDEPANEL: Processing 'segment_ready' event");
+          if (payload.segment) {
+            state.segments.push(payload.segment);
+            renderSegments();
+            renderActivity(`Segment #${payload.segment.segment_id} ready`);
+            setStatusProcessing("Segments updating…");
+            setDebug(undefined, "Segments updating…", "processing");
+          }
+          break;
+        case "progress":
+          console.log("========================================");
+          console.log("SIDEPANEL: Processing 'progress' event");
+          console.log("Progress value:", payload.progress);
+          console.log("Current stage:", payload.current_stage);
+          console.log("Status:", payload.status);
+          console.log("Message:", payload.message);
+          console.log("========================================");
+
+          const progressStage = payload.current_stage || "Processing…";
+          const progressValue = payload.progress ?? 0;
+          const progressStatus = payload.status || "processing";
+
+          console.log(
+            "SIDEPANEL: Calling setStatusProcessing with:",
+            progressStage,
+          );
+          setStatusProcessing(progressStage);
+
+          console.log("SIDEPANEL: Calling setDebug with:", {
+            progress: progressValue,
+            stage: progressStage,
+            status: progressStatus,
+          });
+          setDebug(progressValue, progressStage, progressStatus);
+
+          console.log("SIDEPANEL: Progress UI update completed");
+          console.log("Current status badge text:", statusBadge?.textContent);
+          console.log("Current stage label text:", stageLabel?.textContent);
+          console.log("Current progress bar width:", progressBar?.style.width);
+          console.log("Current debug status text:", debugStatusEl?.textContent);
+          console.log("Current debug stage text:", debugStageEl?.textContent);
+          console.log("========================================");
+          break;
+        case "completed":
+          console.log("========================================");
+          console.log("SIDEPANEL: received COMPLETED event");
+          console.log("========================================");
+          setStatusCompleted("Completed");
+          setDebug(100, "Completed", "completed");
+          renderActivity("Processing completed");
+          break;
+        case "error":
+          console.log("SIDEPANEL: Processing 'error' event");
+          setText(statusBadge, "error");
+          setText(stageLabel, payload.message || "Error");
+          setDebug(0, payload.message || "Error", "error");
+          renderActivity("Processing error");
+          stopStatusPolling();
+          break;
+        case "disconnected":
+          console.warn(
+            "WebSocket disconnected, starting status polling as fallback",
+          );
+          renderActivity("WebSocket disconnected - using polling");
+          startStatusPolling();
+          break;
+        default:
+          console.warn("sidepanel: unknown WS event", payload.event, payload);
+          break;
+      }
+    } catch (e) {
+      console.error("========================================");
+      console.error("SIDEPANEL handleWsMessage ERROR:", e);
+      console.error("Message:", message);
+      console.error("Stack:", e.stack);
+      console.error("========================================");
     }
   }
 
@@ -388,12 +583,20 @@
   }
 
   async function bootstrap() {
+    console.log("========================================");
+    console.log("SIDEPANEL BOOTSTRAP STARTING");
+    console.log("========================================");
+
     attachListeners();
     setText(authStatus, "Loading…");
+
+    console.log("Requesting config from background...");
     const cfg = await sendMessage("config:get");
+    console.log("Config received:", cfg);
     applyConfig(cfg?.data || cfg);
 
     if (!state.user) {
+      console.log("No user logged in");
       setText(authStatus, "Please sign in");
       setText(statusBadge, "login required");
       setText(stageLabel, "Sign in to start");
@@ -402,45 +605,114 @@
       return;
     }
 
-    if (state.currentTaskId) {
-      setStatusProcessing("Processing…");
-    }
+    console.log("User logged in:", state.user.email);
+    console.log("Current task ID:", state.currentTaskId);
 
-    if (state.currentTaskId && (!state.segments || !state.segments.length)) {
-      const segRes = await sendMessage("video:segments", {
+    if (state.currentTaskId) {
+      console.log("Checking task status for:", state.currentTaskId);
+      // Check task status first
+      const statusRes = await sendMessage("video:status", {
         taskId: state.currentTaskId,
       });
-      if (segRes?.data?.segments) {
-        state.segments = segRes.data.segments;
-        renderSegments();
-        if (state.segments.length) {
-          setStatusCompleted("Loaded");
-          setDebug(100, "Loaded", "completed");
+      console.log("Task status response:", statusRes);
+
+      if (statusRes?.data) {
+        const status = statusRes.data.status || statusRes.data.task_status;
+        const progress = statusRes.data.progress ?? 0;
+        const stage = statusRes.data.current_stage || "Processing…";
+
+        console.log(
+          "Task status:",
+          status,
+          "progress:",
+          progress,
+          "stage:",
+          stage,
+        );
+
+        if (status === "completed") {
+          console.log("Task is COMPLETED");
+          setStatusCompleted(stage);
+          setDebug(100, stage, "completed");
+        } else if (status === "failed") {
+          console.log("Task FAILED");
+          setText(statusBadge, "error");
+          setText(stageLabel, statusRes.data.error_message || "Error");
+          setDebug(0, statusRes.data.error_message || "Error", "error");
+        } else if (status === "processing" || status === "pending") {
+          console.log("Task is PROCESSING/PENDING, connecting WebSocket...");
+          // Task is still processing - ensure WebSocket is connected
+          setStatusProcessing(stage);
+          setDebug(progress, stage, "processing");
+          // Reconnect to WebSocket to receive live updates
+          console.log(
+            "Requesting WebSocket connection for task:",
+            state.currentTaskId,
+          );
+          const wsRes = await sendMessage("ws:connect", {
+            taskId: state.currentTaskId,
+          });
+          console.log("WebSocket connect response:", wsRes);
         } else {
+          console.log("Unknown status:", status);
           setStatusProcessing("Processing…");
         }
       } else {
+        console.log("No status data received");
         setStatusProcessing("Processing…");
+      }
+
+      // Load segments if available
+      if (!state.segments || !state.segments.length) {
+        console.log("Loading segments...");
+        const segRes = await sendMessage("video:segments", {
+          taskId: state.currentTaskId,
+        });
+        console.log("Segments response:", segRes);
+        if (segRes?.data?.segments) {
+          state.segments = segRes.data.segments;
+          console.log("Loaded segments:", state.segments.length);
+          renderSegments();
+        }
+      } else {
+        console.log("Already have segments:", state.segments.length);
       }
     }
     setText(authStatus, "Ready");
-    if (state.currentTaskId && state.segments?.length) {
-      setStatusCompleted("Loaded");
-      setDebug(100, "Loaded", "completed");
-    }
 
+    console.log("Setting up message listeners...");
     chrome.runtime.onMessage.addListener((req) => {
+      console.log("========================================");
+      console.log("SIDEPANEL RECEIVED MESSAGE");
+      console.log("Channel:", req?.channel);
+      console.log("Type:", req?.type);
+      console.log("Full request:", req);
+      console.log("========================================");
+
       if (req?.channel === "ws") {
+        console.log("Handling WebSocket message");
         handleWsMessage(req);
       }
       if (req?.channel === "video" && req?.type === "current") {
+        console.log("Video current event");
         state.currentTaskId = req.taskId || state.currentTaskId;
         state.currentVideoUrl = req.url || state.currentVideoUrl;
         setCurrentVideo();
         setStatusProcessing("Processing…");
       }
     });
+
+    // Stop polling when page unloads
+    window.addEventListener("beforeunload", () => {
+      console.log("Sidepanel unloading, stopping polling");
+      stopStatusPolling();
+    });
+
+    console.log("========================================");
+    console.log("SIDEPANEL BOOTSTRAP COMPLETE");
+    console.log("========================================");
   }
 
+  console.log("Starting sidepanel bootstrap...");
   bootstrap();
 })();

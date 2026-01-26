@@ -4,8 +4,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 import torch
-from pydantic import ConfigDict
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +65,11 @@ class BaseAppSettings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
+    # Authentication settings
+    SECRET_KEY: str = "your-secret-key-change-in-production-please-use-random-string"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30  # 30 days
+
     # Database settings
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/vier"
     DATABASE_ECHO: bool = False
@@ -99,7 +103,7 @@ class BaseAppSettings(BaseSettings):
         None  # Path to YouTube cookies file (e.g., "youtube_cookies.txt")
     )
 
-    model_config = ConfigDict(
+    model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,

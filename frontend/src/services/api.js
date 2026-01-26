@@ -1,5 +1,6 @@
 // API Service for backend communication
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+export const API_BASE_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 class ApiService {
   constructor() {
@@ -31,13 +32,13 @@ class ApiService {
           try {
             const response = JSON.parse(xhr.responseText);
             resolve(response);
-          } catch (error) {
+          } catch (err) {
             reject(new Error("Failed to parse response"));
           }
         } else {
           try {
-            const error = JSON.parse(xhr.responseText);
-            reject(new Error(error.detail || "Upload failed"));
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.detail || "Upload failed"));
           } catch {
             reject(new Error(`Upload failed with status ${xhr.status}`));
           }

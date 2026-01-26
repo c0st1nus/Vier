@@ -3,7 +3,7 @@ import { useTranslation } from "../contexts/LanguageContext";
 import "./LanguageSwitcher.css";
 
 const LanguageSwitcher = () => {
-  const { language, changeLanguage, t } = useTranslation();
+  const { language, changeLanguage } = useTranslation();
 
   const languages = [
     { code: "ru", name: "Русский", flag: "🇷🇺" },

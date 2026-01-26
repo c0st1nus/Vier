@@ -2,10 +2,12 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "../contexts/LanguageContext";
 import LanguageSwitcher from "./LanguageSwitcher";
+import { useAuth } from "../contexts/AuthContext.jsx";
 import "./Header.css";
 
 const Header = () => {
   const { t } = useTranslation();
+  const { user } = useAuth();
 
   return (
     <header className="header">
@@ -88,6 +90,45 @@ const Header = () => {
               {t("header.history")}
             </Link>
             <LanguageSwitcher />
+            {user ? (
+              <Link to="/history" className="nav-link">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  aria-label="User icon"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M5.121 17.804A9 9 0 0112 15a9 9 0 016.879 2.804M15 11a3 3 0 10-6 0 3 3 0 006 0z"
+                  />
+                </svg>
+                {user.email || t("header.about")}
+              </Link>
+            ) : (
+              <Link to="/auth" className="nav-link">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  aria-label="Auth icon"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M5 12h14M12 5l7 7-7 7"
+                  />
+                </svg>
+                Войти
+              </Link>
+            )}
           </nav>
         </div>
       </div>

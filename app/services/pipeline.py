@@ -3,7 +3,7 @@ import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Callable, Dict, Optional, cast
 
 from app.core.config import settings
 from app.schemas.models import (
@@ -17,10 +17,13 @@ from app.services.asr_service import ASRService
 from app.services.db_updater import DBUpdater
 from app.services.llm_service import LLMService
 from app.services.vision_service import VisionService
+from app.services.websocket_manager import websocket_manager
 
 # Import vLLM service if enabled
 if settings.USE_VLLM:
     from app.services.vllm_service import VLLMService
+else:
+    VLLMService = None  # type: ignore[assignment]
 from app.utils.video_utils import (
     cleanup_temp_files,
     clear_vram,
@@ -56,6 +59,8 @@ class VideoPipeline:
         # Use vLLM or Ollama based on configuration
         if settings.USE_VLLM:
             logger.info("Using vLLM for LLM inference (faster)")
+            if VLLMService is None:
+                raise RuntimeError("USE_VLLM is True but VLLMService is unavailable")
             self.llm_service = VLLMService()
         else:
             logger.info("Using Ollama for LLM inference")
@@ -229,7 +234,7 @@ class VideoPipeline:
             )
             await DBUpdater.set_stage_progress(task_id, "Generating quizzes", 70.0)
             segments = await asyncio.to_thread(
-                self.llm_service.segment_and_generate_quizzes,
+                cast(Callable[..., Any], self.llm_service.segment_and_generate_quizzes),
                 transcription,
                 frame_analyses,
                 metadata.duration,
@@ -238,10 +243,19 @@ class VideoPipeline:
             task.segments = segments
             logger.info(f"Generated {len(segments)} segments with quizzes")
 
+            for seg in segments:
+                await websocket_manager.send_to_task(
+                    task_id,
+                    {
+                        "event": "segment_ready",
+                        "segment": seg.dict(),
+                    },
+                )
+
             # Generate video title
             logger.info("Generating video title")
             video_title = await asyncio.to_thread(
-                self.llm_service.generate_video_title,
+                cast(Callable[..., Any], self.llm_service.generate_video_title),
                 transcription,
                 frame_analyses,
                 metadata.duration,
@@ -279,6 +293,15 @@ class VideoPipeline:
                 segments=segments_json,
                 duration=metadata.duration,
                 video_metadata=video_metadata_dict,
+            )
+
+            await websocket_manager.send_to_task(
+                task_id,
+                {
+                    "event": "completed",
+                    "total_segments": len(segments_json),
+                    "message": "Video processing completed",
+                },
             )
 
             # Cleanup temporary files
@@ -326,6 +349,19 @@ class VideoPipeline:
             if message:
                 logger.info(f"Task {task_id}: {message}")
             task.updated_at = datetime.utcnow()
+
+            try:
+                await websocket_manager.send_to_task(
+                    task_id,
+                    {
+                        "event": "progress",
+                        "progress": progress or 0.0,
+                        "current_stage": stage.value if stage else None,
+                        "message": message,
+                    },
+                )
+            except Exception:
+                logger.debug("WS progress send failed for task %s", task_id)
 
 
 # Task management functions

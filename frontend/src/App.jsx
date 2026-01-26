@@ -10,6 +10,7 @@ import UploadPage from "./pages/UploadPage";
 import VideoPage from "./pages/VideoPage";
 import HistoryPage from "./pages/HistoryPage";
 import SharedVideoPage from "./pages/SharedVideoPage";
+import LoginPage from "./pages/LoginPage";
 import "./App.css";
 
 function App() {
@@ -21,6 +22,9 @@ function App() {
           <Routes>
             {/* Upload page - главная страница */}
             <Route path="/" element={<UploadPage />} />
+
+            {/* Auth page */}
+            <Route path="/auth" element={<LoginPage />} />
 
             {/* Video page - показывает статус обработки и результаты */}
             <Route path="/video/:taskId" element={<VideoPage />} />
@@ -42,8 +46,8 @@ function App() {
           <div className="container">
             <div className="footer-content">
               <p className="footer-text">
-                © {new Date().getFullYear()} AI Video Quiz Generator. Powered
-                by open-source AI.
+                © {new Date().getFullYear()} AI Video Quiz Generator. Powered by
+                open-source AI.
               </p>
               <div className="footer-links">
                 <a href="/history" className="footer-link">

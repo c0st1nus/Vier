@@ -11,7 +11,17 @@ from alembic import context
 
 # Import our app configuration and models
 from app.core.config import settings
-from app.db.models import Task  # noqa: F401 - needed for autogenerate
+
+# Import all models for autogenerate
+from app.db.models import (  # noqa: F401
+    ProcessingStatus,
+    Quiz,
+    RefreshToken,
+    Segment,
+    User,
+    UserAnswer,
+    Video,
+)
 from app.db.session import Base
 
 # this is the Alembic Config object, which provides

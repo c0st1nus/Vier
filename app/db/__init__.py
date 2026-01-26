@@ -1,6 +1,14 @@
 """Database package initialization."""
 
-from app.db.models import Task, TaskStatus
+from app.db.models import (
+    ProcessingStatus,
+    Quiz,
+    RefreshToken,
+    Segment,
+    User,
+    UserAnswer,
+    Video,
+)
 from app.db.session import (
     AsyncSessionLocal,
     Base,
@@ -13,8 +21,13 @@ from app.db.session import (
 
 __all__ = [
     "Base",
-    "Task",
-    "TaskStatus",
+    "User",
+    "RefreshToken",
+    "Video",
+    "Segment",
+    "Quiz",
+    "UserAnswer",
+    "ProcessingStatus",
     "AsyncSessionLocal",
     "get_db",
     "get_redis",

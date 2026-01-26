@@ -51,6 +51,27 @@ def unload_model(model: Any) -> None:
         logger.info("Model unloaded and VRAM freed")
 
 
+def normalize_youtube_url(url: str) -> str:
+    """
+    Normalize various YouTube URL formats (watch, shorts, youtu.be, embed) to a canonical watch URL.
+    """
+    # Extract 11-char video id from known patterns
+    patterns = [
+        r"(?:v=)([\w-]{11})",  # watch?v=
+        r"youtu\.be/([\w-]{11})",  # youtu.be/ID
+        r"youtube\.com/embed/([\w-]{11})",  # embed/ID
+        r"youtube\.com/shorts/([\w-]{11})",  # shorts/ID
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            vid = match.group(1)
+            normalized = f"https://www.youtube.com/watch?v={vid}"
+            logger.info(f"Normalized URL: {normalized}")
+            return normalized
+    return url
+
+
 def download_youtube_video(url: str, output_path: Path) -> Path:
     """
     Download video from YouTube URL using yt-dlp
@@ -68,6 +89,9 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
     # Sanitize URL - remove shell escape characters
     url = url.replace("\\", "")
     logger.info(f"Sanitized URL: {url}")
+
+    # Normalize URL to strip playlist/index params and keep only video id
+    url = normalize_youtube_url(url)
 
     # Check for cookies file
     cookies_file = None
@@ -90,6 +114,7 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
         r"(?:https?://)?(?:www\.)?youtube\.com/watch\?v=[\w-]+",
         r"(?:https?://)?(?:www\.)?youtu\.be/[\w-]+",
         r"(?:https?://)?(?:www\.)?youtube\.com/embed/[\w-]+",
+        r"(?:https?://)?(?:www\.)?youtube\.com/shorts/[\w-]+",
     ]
 
     is_youtube_url = any(re.match(pattern, url) for pattern in youtube_patterns)
@@ -107,10 +132,14 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
         "no_warnings": False,
         "extract_flat": False,
         "noplaylist": True,  # Don't download playlists
-        # Anti-bot detection options
+        "retries": 5,
+        "fragment_retries": 10,
+        "socket_timeout": 30,
+        "http_chunk_size": 10 * 1024 * 1024,
+        # Anti-bot detection options: prefer non-web clients to avoid SABR
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "web"],
+                "player_client": ["android", "ios", "tv_embedded"],
                 "player_skip": ["webpage", "configs"],
             }
         },
@@ -126,15 +155,9 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
     # Add cookies if available
     if has_cookies_file:
         ydl_opts["cookiefile"] = str(cookies_file)
-    else:
-        # Try to use browser cookies as fallback
-        try:
-            ydl_opts["cookiesfrombrowser"] = ("firefox",)
-        except Exception as e:
-            logger.warning(f"Could not load browser cookies: {e}")
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore
+    def _download_with_opts(opts: dict[str, Any]) -> Path:
+        with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore
             logger.info(f"Downloading video from: {url}")
 
             # Try to extract info first without downloading to validate
@@ -143,7 +166,6 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
                 if not info:
                     raise ValueError("No video information retrieved from URL")
 
-                # Check if it's a playlist
                 if info.get("_type") == "playlist":
                     raise ValueError(
                         "URL points to a playlist, not a single video. Please provide a direct video URL."
@@ -158,11 +180,9 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
             # Now download the video
             info = ydl.extract_info(url, download=True)
 
-            # Check if we got actual video info
             if not info:
                 raise ValueError("No video information retrieved from URL")
 
-            # Check if it's a playlist or redirect
             if info.get("_type") == "playlist":
                 raise ValueError(
                     "URL points to a playlist, not a single video. Please provide a direct video URL."
@@ -176,7 +196,6 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
             video_path = output_path / f"{video_id}.{ext}"
 
             if not video_path.exists():
-                # Try to find any video file in the directory
                 video_files = (
                     list(output_path.glob("*.mp4"))
                     + list(output_path.glob("*.webm"))
@@ -188,7 +207,6 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
                 else:
                     raise FileNotFoundError(f"Downloaded file not found: {video_path}")
 
-            # Verify it's a valid video file
             if video_path.stat().st_size < 1024:  # Less than 1KB
                 raise ValueError(
                     f"Downloaded file is too small ({video_path.stat().st_size} bytes), likely not a valid video"
@@ -199,20 +217,39 @@ def download_youtube_video(url: str, output_path: Path) -> Path:
             )
             return video_path
 
+    try:
+        return _download_with_opts(ydl_opts)
+
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
         logger.error(f"yt-dlp download error: {error_msg}")
 
-        # Provide helpful error message
-        if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
-            raise Exception(
-                f"YouTube bot detection triggered. Please:\n"
-                f"1. Export cookies from your browser using a browser extension\n"
-                f"2. Save cookies as 'youtube_cookies.txt' in the project root\n"
-                f"3. Or install 'yt-dlp[default]' for better browser integration\n"
-                f"Original error: {error_msg}"
+        # Fallback: retry without cookies using android/tv_embedded clients
+        fallback_opts = dict(ydl_opts)
+        fallback_opts.pop("cookiefile", None)
+        fallback_opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["android", "tv_embedded"],
+                "player_skip": ["webpage", "configs"],
+            }
+        }
+        try:
+            logger.info(
+                "Retrying download without cookies using android/tv_embedded clients"
             )
-        else:
+            return _download_with_opts(fallback_opts)
+        except yt_dlp.utils.DownloadError as e2:
+            error_msg = str(e2)
+            logger.error(f"yt-dlp fallback download error: {error_msg}")
+
+            if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
+                raise Exception(
+                    f"YouTube bot detection triggered. Please:\n"
+                    f"1. Export cookies from your browser using a browser extension\n"
+                    f"2. Save cookies as 'youtube_cookies.txt' in the project root\n"
+                    f"3. Or install 'yt-dlp[default]' for better browser integration\n"
+                    f"Original error: {error_msg}"
+                )
             raise Exception(f"Video download failed: {error_msg}")
     except Exception as e:
         logger.error(f"Failed to download video: {e}")

@@ -1,3 +1,5 @@
-from app.api.endpoints import general, upload, video
+"""API endpoints package."""
 
-__all__ = ["upload", "video", "general"]
+from app.api.endpoints import auth, general, quiz, user, video_new, websocket
+
+__all__ = ["auth", "general", "quiz", "user", "video_new", "websocket"]

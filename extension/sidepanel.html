@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>AI Video Quiz Assistant</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <style>
+            :root {
+                color-scheme: light dark;
+                --bg: #0f172a;
+                --panel: #111827;
+                --card: #1f2937;
+                --text: #e5e7eb;
+                --muted: #94a3b8;
+                --accent: #2563eb;
+                --accent-2: #22c55e;
+                --border: #1f2937;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    Segoe UI,
+                    sans-serif;
+                background: var(--bg);
+                color: var(--text);
+                min-height: 100vh;
+            }
+            .container {
+                padding: 12px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                background: var(--panel);
+                min-height: 100vh;
+                width: 400px;
+                max-width: 400px;
+            }
+            h1 {
+                margin: 0 0 8px;
+                font-size: 18px;
+            }
+            h2 {
+                margin: 0;
+                font-size: 15px;
+                color: var(--muted);
+            }
+            details {
+                background: var(--card);
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                padding: 0;
+                overflow: hidden;
+            }
+            details[open] {
+                border-color: #334155;
+            }
+            summary {
+                list-style: none;
+                cursor: pointer;
+                padding: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                font-weight: 600;
+                color: var(--text);
+                background: #101827;
+            }
+            summary::-webkit-details-marker {
+                display: none;
+            }
+            .section-body {
+                padding: 12px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .row {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+            }
+            .space-between {
+                justify-content: space-between;
+            }
+            .muted {
+                color: var(--muted);
+                font-size: 13px;
+            }
+            label {
+                display: block;
+                font-size: 13px;
+                margin-bottom: 4px;
+                color: var(--muted);
+            }
+            input,
+            select,
+            button {
+                width: 100%;
+                padding: 10px;
+                border-radius: 8px;
+                border: 1px solid var(--border);
+                background: #0b1220;
+                color: var(--text);
+                font-size: 14px;
+            }
+            button.primary {
+                background: linear-gradient(135deg, var(--accent), #3b82f6);
+                color: white;
+                border: none;
+                cursor: pointer;
+            }
+            button.ghost {
+                background: transparent;
+                border: 1px solid var(--border);
+                color: var(--text);
+                cursor: pointer;
+            }
+            .progress {
+                width: 100%;
+                height: 8px;
+                background: #0b1220;
+                border-radius: 999px;
+                overflow: hidden;
+                border: 1px solid var(--border);
+            }
+            .progress > div {
+                height: 100%;
+                background: linear-gradient(
+                    90deg,
+                    var(--accent),
+                    var(--accent-2)
+                );
+                width: 0%;
+            }
+            ul {
+                list-style: none;
+                margin: 0;
+                padding: 0;
+            }
+            .seg-item {
+                padding: 10px;
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                margin-bottom: 8px;
+                background: #0f172a;
+                cursor: pointer;
+            }
+            .badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 4px 8px;
+                border-radius: 999px;
+                background: #0b1220;
+                border: 1px solid var(--border);
+                font-size: 12px;
+                color: var(--muted);
+            }
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+                gap: 8px;
+            }
+            .pill {
+                background: #0b1220;
+                border: 1px solid var(--border);
+                padding: 8px;
+                border-radius: 8px;
+                font-size: 13px;
+                color: var(--muted);
+            }
+            .chart {
+                width: 100%;
+                height: 120px;
+                background: #0b1220;
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                display: grid;
+                align-items: end;
+                padding: 8px;
+                gap: 6px;
+                grid-auto-flow: column;
+                grid-auto-columns: 1fr;
+            }
+            .chart-bar {
+                background: linear-gradient(180deg, var(--accent), #0ea5e9);
+                border-radius: 6px 6px 2px 2px;
+                min-height: 6px;
+            }
+            .chart-bar.correct {
+                background: linear-gradient(180deg, var(--accent-2), #16a34a);
+            }
+            a {
+                color: var(--accent);
+                text-decoration: none;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container" id="panel-root">
+            <header>
+                <h1>AI Video Quiz</h1>
+                <div class="muted">
+                    Interactive quizzes for your current video
+                </div>
+            </header>
+
+            <details id="auth-section">
+                <summary>
+                    <span>Sign in</span>
+                    <span class="muted">Login to sync answers and stats</span>
+                </summary>
+                <div class="section-body">
+                    <div class="row">
+                        <input
+                            type="email"
+                            id="auth-email"
+                            placeholder="Email"
+                            autocomplete="email"
+                        />
+                    </div>
+                    <div class="row">
+                        <input
+                            type="password"
+                            id="auth-password"
+                            placeholder="Password"
+                            autocomplete="current-password"
+                        />
+                    </div>
+                    <div class="row">
+                        <button class="primary" id="btn-login">Login</button>
+                    </div>
+                    <div class="row space-between">
+                        <button class="ghost" id="btn-register">
+                            Register
+                        </button>
+                        <span class="muted" id="auth-status"></span>
+                    </div>
+                </div>
+            </details>
+
+            <details id="user-section" open hidden>
+                <summary>
+                    <span>User</span>
+                    <button class="ghost" id="btn-logout" style="width: auto">
+                        Logout
+                    </button>
+                </summary>
+                <div class="section-body">
+                    <div class="muted" id="user-email">you@example.com</div>
+                    <div class="chart" id="stats-chart">
+                        <div
+                            class="chart-bar"
+                            style="height: 20%"
+                            title="Videos"
+                        ></div>
+                        <div
+                            class="chart-bar correct"
+                            style="height: 60%"
+                            title="Correct"
+                        ></div>
+                        <div
+                            class="chart-bar"
+                            style="height: 40%"
+                            title="Answered"
+                        ></div>
+                    </div>
+                    <div class="grid">
+                        <div class="pill" id="stat-videos">Videos: 0</div>
+                        <div class="pill" id="stat-answered">Answered: 0</div>
+                        <div class="pill" id="stat-correct">Correct: 0</div>
+                        <div class="pill" id="stat-accuracy">Accuracy: 0%</div>
+                    </div>
+                </div>
+            </details>
+
+            <details id="settings-section">
+                <summary>
+                    <span>Settings</span>
+                    <span class="muted">Language, toggle, backend</span>
+                </summary>
+                <div class="section-body">
+                    <label for="language-select">Language</label>
+                    <select id="language-select">
+                        <option value="en">English</option>
+                        <option value="ru">Русский</option>
+                        <option value="kk">Қазақша</option>
+                    </select>
+                    <div
+                        class="row space-between"
+                        style="align-items: center; margin-top: 6px"
+                    >
+                        <div>
+                            <div class="muted">Extension Enabled</div>
+                            <div class="muted" style="font-size: 12px">
+                                Pause processing without uninstalling
+                            </div>
+                        </div>
+                        <input type="checkbox" id="toggle-enabled" />
+                    </div>
+                    <label for="backend-url" style="margin-top: 8px"
+                        >Backend URL</label
+                    >
+                    <input
+                        id="backend-url"
+                        type="text"
+                        placeholder="http://localhost:8000"
+                    />
+                    <div class="row" style="margin-top: 10px">
+                        <button class="ghost" id="btn-save-settings">
+                            Save
+                        </button>
+                    </div>
+                </div>
+            </details>
+
+            <details id="debug-section" open>
+                <summary>
+                    <span>Debug Data</span>
+                    <span class="muted">Current video &amp; processing</span>
+                </summary>
+                <div class="section-body">
+                    <div>
+                        <div class="muted">Current Video</div>
+                        <div class="pill" id="video-title">
+                            No video detected
+                        </div>
+                    </div>
+                    <div class="progress">
+                        <div id="progress-bar"></div>
+                    </div>
+                    <div class="row space-between" style="margin-top: 8px">
+                        <span class="badge" id="status-badge">pending</span>
+                        <span class="muted" id="stage-label">Waiting…</span>
+                    </div>
+                    <div class="row space-between" style="margin-top: 8px">
+                        <span class="muted">Debug Status</span>
+                        <span class="badge" id="debug-status">pending</span>
+                    </div>
+                    <div class="row space-between">
+                        <span class="muted">Debug Stage</span>
+                        <span class="muted" id="debug-stage">Waiting…</span>
+                    </div>
+                </div>
+            </details>
+
+            <details id="segments-section" open>
+                <summary>
+                    <span>Segments</span>
+                    <span class="muted">Tap to jump to segment</span>
+                </summary>
+                <div class="section-body">
+                    <ul id="segment-list">
+                        <li class="muted">
+                            Please sign in to process the video and view
+                            segments.
+                        </li>
+                    </ul>
+                </div>
+            </details>
+
+            <details id="activity-section">
+                <summary>
+                    <span>Recent Activity</span>
+                    <span class="muted">collapsed</span>
+                </summary>
+                <div class="section-body">
+                    <div id="activity-list" class="muted">No activity yet.</div>
+                </div>
+            </details>
+        </div>
+
+        <script src="sidepanel.js" type="module"></script>
+    </body>
+</html>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quiz Overlay</title>
+</head>
+<body>
+  <div
+    class="quiz-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="quiz-title"
+  >
+    <div class="quiz-overlay__panel">
+      <header class="quiz-overlay__header">
+        <h2 id="quiz-title" data-quiz-title>Segment Quiz</h2>
+        <button
+          class="quiz-overlay__close"
+          type="button"
+          data-quiz-close
+          aria-label="Close quiz"
+        >
+          ×
+        </button>
+      </header>
+
+      <section class="quiz-overlay__body">
+        <div class="quiz-overlay__meta" data-quiz-meta></div>
+        <div class="quiz-overlay__list" data-quiz-list>
+          <div class="quiz-item" data-empty-state>Loading quizzes…</div>
+        </div>
+      </section>
+
+      <footer class="quiz-overlay__footer">
+        <button
+          class="quiz-overlay__close secondary"
+          type="button"
+          data-quiz-close
+        >
+          Close
+        </button>
+      </footer>
+    </div>
+  </div>
+</body>
+</html>

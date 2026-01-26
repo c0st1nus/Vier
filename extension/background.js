@@ -6,7 +6,7 @@
 // - Message routing between content script and side panel
 // - Minimal in-memory state cache (current video/task, segments, answers)
 
-const DEFAULT_BACKEND_URL = "http://localhost:8000";
+const DEFAULT_BACKEND_URL = "http://16.171.11.38:2135";
 
 const state = {
   backendUrl: DEFAULT_BACKEND_URL,
@@ -45,8 +45,8 @@ async function loadStoredState() {
   state.user = stored.user || null;
   const storedBackend = stored.backend_url;
   if (storedBackend && storedBackend.includes("localhost")) {
-    state.backendUrl = "http://localhost:8000";
-    await chrome.storage.local.set({ backend_url: "http://localhost:8000" });
+    state.backendUrl = "http://16.171.11.38:2135";
+    await chrome.storage.local.set({ backend_url: "http://16.171.11.38:2135" });
   } else {
     state.backendUrl = storedBackend || DEFAULT_BACKEND_URL;
   }

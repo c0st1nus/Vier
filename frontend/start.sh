@@ -46,16 +46,16 @@ fi
 
 # Display configuration
 echo "📋 Configuration:"
-echo "   API URL: ${VITE_API_URL:-http://localhost:8000}"
+echo "   API URL: ${VITE_API_URL:-http://16.171.11.38:2135}"
 echo "   Port: 5173 (default)"
 echo ""
 
 # Check if backend is running
 echo "🔍 Checking backend connection..."
-if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+if curl -s http://16.171.11.38:2135/health > /dev/null 2>&1; then
     echo "✅ Backend is running"
 else
-    echo "⚠️  Warning: Backend doesn't appear to be running on http://localhost:8000"
+    echo "⚠️  Warning: Backend doesn't appear to be running on http://16.171.11.38:2135"
     echo "   The frontend will start, but you'll need to start the backend to use the app"
     echo "   Run: cd ../app && python run.py"
 fi

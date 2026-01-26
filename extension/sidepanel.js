@@ -38,7 +38,7 @@
   const statAccuracy = qs("stat-accuracy");
 
   let state = {
-    backendUrl: "http://localhost:8000",
+    backendUrl: "http://16.171.11.38:2135",
     language: "en",
     enabled: true,
     user: null,

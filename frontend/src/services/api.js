@@ -1,6 +1,6 @@
 // API Service for backend communication
 export const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:8000";
+  import.meta.env.VITE_API_URL || "http://16.171.11.38:2135";
 
 class ApiService {
   constructor() {

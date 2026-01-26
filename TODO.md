@@ -208,7 +208,7 @@
 - `activeTab` - Access current tab
 - `sidePanel` - Chrome side panel API
 - `webRequest` (optional) - Intercept video URLs
-- Host permissions: `*://*.youtube.com/*`, `*://localhost:8000/*` (backend)
+- Host permissions: `*://*.youtube.com/*`, `*://16.171.11.38:2135/*` (backend)
 
 ---
 
@@ -289,7 +289,7 @@
 
 **Responsibilities:**
 1. **API Communication**
-   - Store backend URL (configurable, default: `http://localhost:8000`)
+   - Store backend URL (configurable, default: `http://16.171.11.38:2135`)
    - Store JWT tokens in `chrome.storage.local`
    - Methods: `login()`, `register()`, `refreshToken()`, `logout()`
    - Methods: `checkVideo()`, `uploadVideo()`, `getSegments()`, `submitAnswer()`
@@ -322,7 +322,7 @@ chrome.storage.local:
   "user": {...},
   "language": "en",
   "enabled": true,
-  "backend_url": "http://localhost:8000"
+  "backend_url": "http://16.171.11.38:2135"
 }
 ```
 

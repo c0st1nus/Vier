@@ -141,23 +141,23 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Server will be available at http://16.171.11.38:
 35
-# API docs: http://16.171.11.38:2135/docs
+# API docs: http://16.170.208.132:2135/docs
 ```
 
 ### 4. Test API
 
 ```bash
 # Upload a video
-curl -X POST "http://16.171.11.38:2135/api/video/upload/file" \
+curl -X POST "http://16.170.208.132:2135/api/video/upload/file" \
   -F "file=@test_video.mp4"
 
 # Response: {"task_id": "uuid-here", "status": "processing"}
 
 # Check status
-curl "http://16.171.11.38:2135/api/video/{task_id}/status"
+curl "http://16.170.208.132:2135/api/video/{task_id}/status"
 
 # Get results
-curl "http://16.171.11.38:2135/api/video/{task_id}/segments"
+curl "http://16.170.208.132:2135/api/video/{task_id}/segments"
 ```
 
 ---
@@ -328,7 +328,7 @@ Get final segmented results with quizzes.
 
 ### Scenario 1: Web App (File Upload)
 
-1. Open http://16.171.11.38:2135 (or your deployed URL)
+1. Open http://16.170.208.132:2135 (or your deployed URL)
 2. Drag & drop a lecture video (`.mp4`, `.mov`, `.avi`)
 3. Wait for processing (progress bar shows current stage)
 4. View results: timeline with segments, clickable to see quizzes
@@ -358,7 +358,7 @@ pytest tests/
 yt-dlp -f "best[height<=720]" -o test_video.mp4 "https://www.youtube.com/watch?v=aircAruvnKk"
 
 # Process it
-curl -X POST "http://16.171.11.38:2135/api/video/upload/file" \
+curl -X POST "http://16.170.208.132:2135/api/video/upload/file" \
   -F "file=@test_video.mp4"
 ```
 

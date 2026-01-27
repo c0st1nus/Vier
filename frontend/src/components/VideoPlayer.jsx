@@ -20,6 +20,9 @@ const VideoPlayer = ({ videoUrl, segments, taskId }) => {
   const [showQuiz, setShowQuiz] = useState(false);
   const [currentQuiz, setCurrentQuiz] = useState(null);
   const [quizAnswer, setQuizAnswer] = useState(null);
+  const [quizAnswers, setQuizAnswers] = useState({});
+  const [shortAnswerInput, setShortAnswerInput] = useState("");
+  const [shortAnswerAnswers, setShortAnswerAnswers] = useState({});
   const [quizResult, setQuizResult] = useState(null);
   const [answeredQuizzes, setAnsweredQuizzes] = useState(new Set());
   const [videoError, setVideoError] = useState(null);
@@ -86,58 +89,74 @@ const VideoPlayer = ({ videoUrl, segments, taskId }) => {
     for (const segment of segments) {
       if (!segment.quizzes || segment.quizzes.length === 0) continue;
 
-      // Get quiz question in current language for key
-      const quizTranslation = getQuizTranslation(segment.quizzes[0], language);
-      const quizKey = `${segment.start_time}-${quizTranslation.question}`;
+      for (let quizIndex = 0; quizIndex < segment.quizzes.length; quizIndex++) {
+        const quiz = segment.quizzes[quizIndex];
 
-      // Skip if already answered or quiz is already showing
-      if (answeredQuizzesRef.current.has(quizKey)) continue;
-      if (showQuiz) continue;
+        // Get quiz question in current language for key
+        const quizTranslation = getQuizTranslation(quiz, language);
+        const quizKey = `${segment.start_time}-${segment.end_time}-${quizIndex}-${quizTranslation.question}`;
 
-      // Calculate quiz time: 1 second after segment ends
-      let quizTime = segment.end_time + 1.0;
+        // Skip if already answered or quiz is already showing
+        if (answeredQuizzesRef.current.has(quizKey)) continue;
+        if (showQuiz) return;
 
-      // If quiz time exceeds video duration, show it 1-5 seconds before video ends
-      if (quizTime > duration) {
-        // Try to show 3 seconds before end (middle of 1-5 range)
-        quizTime = Math.max(segment.end_time, duration - 3.0);
-        // Make sure it's not before the segment ends
-        if (quizTime < segment.end_time) {
-          quizTime = segment.end_time;
+        // Calculate quiz time: 1 second after segment ends, stagger per quiz
+        let quizTime = segment.end_time + 1.0 + quizIndex * 4.0;
+
+        // If quiz time exceeds video duration, distribute quizzes within the segment
+        if (quizTime > duration) {
+          const availableWindow = Math.max(
+            1.0,
+            segment.end_time - segment.start_time,
+          );
+          const perQuiz = availableWindow / (segment.quizzes.length + 1);
+          quizTime = Math.min(
+            duration - 0.5,
+            segment.start_time + perQuiz * (quizIndex + 1),
+          );
         }
-      }
 
-      const tolerance = 0.3; // Show quiz within 0.3 seconds of quiz time
+        const tolerance = 0.3; // Show quiz within 0.3 seconds of quiz time
 
-      // Check if we're at the quiz time
-      if (time >= quizTime - tolerance && time <= quizTime + tolerance) {
-        const segmentTranslation = getSegmentTranslation(segment, language);
-        console.log(
-          `🎯 Ожидается квиз на времени ${quizTime.toFixed(2)}с для сегмента "${segmentTranslation.topic_title}"`,
-        );
-        console.log(`✅ ПОКАЗЫВАЕМ КВИЗ: "${quizTranslation.question}"`);
+        // Check if we're at the quiz time
+        if (time >= quizTime - tolerance && time <= quizTime + tolerance) {
+          const segmentTranslation = getSegmentTranslation(segment, language);
+          console.log(
+            `🎯 Ожидается квиз #${quizIndex + 1} на времени ${quizTime.toFixed(2)}с для сегмента "${segmentTranslation.topic_title}"`,
+          );
+          console.log(`✅ ПОКАЗЫВАЕМ КВИЗ: "${quizTranslation.question}"`);
 
-        setCurrentQuiz({
-          ...segment.quizzes[0],
-          segmentTitle: segmentTranslation.topic_title,
-          quizKey: quizKey,
-          currentLanguage: language,
-        });
-        setShowQuiz(true);
-        setQuizAnswer(null);
-        setQuizResult(null);
-        pauseVideo();
+          setCurrentQuiz({
+            ...quiz,
+            segmentTitle: segmentTranslation.topic_title,
+            quizKey: quizKey,
+            currentLanguage: language,
+          });
+          setShowQuiz(true);
+          setQuizAnswer(
+            Object.prototype.hasOwnProperty.call(quizAnswers, quizKey)
+              ? quizAnswers[quizKey]
+              : null,
+          );
+          setShortAnswerInput(
+            Object.prototype.hasOwnProperty.call(shortAnswerAnswers, quizKey)
+              ? shortAnswerAnswers[quizKey]
+              : "",
+          );
+          setQuizResult(null);
+          pauseVideo();
 
-        // Immediately mark as being shown to prevent re-triggering
-        answeredQuizzesRef.current.add(quizKey);
-        setAnsweredQuizzes((prev) => new Set([...prev, quizKey]));
-        break; // Only show one quiz at a time
-      } else if (Math.abs(time - quizTime) < 1.0) {
-        // Log when we're close to quiz time
-        const segmentTranslation = getSegmentTranslation(segment, language);
-        console.log(
-          `🎯 Ожидается квиз на времени ${quizTime.toFixed(2)}с для сегмента "${segmentTranslation.topic_title}" (текущее время: ${time.toFixed(2)}с)`,
-        );
+          // Immediately mark as being shown to prevent re-triggering
+          answeredQuizzesRef.current.add(quizKey);
+          setAnsweredQuizzes((prev) => new Set([...prev, quizKey]));
+          return; // Only show one quiz at a time
+        } else if (Math.abs(time - quizTime) < 1.0) {
+          // Log when we're close to quiz time
+          const segmentTranslation = getSegmentTranslation(segment, language);
+          console.log(
+            `🎯 Ожидается квиз #${quizIndex + 1} на времени ${quizTime.toFixed(2)}с для сегмента "${segmentTranslation.topic_title}" (текущее время: ${time.toFixed(2)}с)`,
+          );
+        }
       }
     }
   };
@@ -215,12 +234,65 @@ const VideoPlayer = ({ videoUrl, segments, taskId }) => {
   // Quiz handling
   const handleQuizAnswer = (answerIndex) => {
     setQuizAnswer(answerIndex);
+    if (!currentQuiz) {
+      return;
+    }
+    setQuizAnswers((prev) => ({
+      ...prev,
+      [currentQuiz.quizKey]: answerIndex,
+    }));
+  };
+
+  const handleShortAnswerChange = (value) => {
+    setShortAnswerInput(value);
+    if (!currentQuiz) {
+      return;
+    }
+    setShortAnswerAnswers((prev) => ({
+      ...prev,
+      [currentQuiz.quizKey]: value,
+    }));
   };
 
   const submitQuizAnswer = () => {
-    if (quizAnswer === null || !currentQuiz) return;
+    if (!currentQuiz) return;
+    const quizTranslation = getCurrentQuizTranslation();
+    const acceptedShortAnswers = Array.isArray(quizTranslation?.short_answers)
+      ? quizTranslation.short_answers
+      : [];
+    const isShortAnswer =
+      currentQuiz.type === "short_answer" || acceptedShortAnswers.length > 0;
 
-    const isCorrect = quizAnswer === currentQuiz.correct_index;
+    if (isShortAnswer) {
+      const rawAnswer =
+        shortAnswerAnswers[currentQuiz.quizKey] ?? shortAnswerInput;
+      const trimmedAnswer = rawAnswer ? rawAnswer.trim() : "";
+      if (!trimmedAnswer) return;
+
+      const caseSensitive = !!quizTranslation?.answer_case_sensitive;
+      const normalizedAnswer = caseSensitive
+        ? trimmedAnswer
+        : trimmedAnswer.toLowerCase();
+      const normalizedAccepted = acceptedShortAnswers.map((answer) =>
+        caseSensitive
+          ? String(answer).trim()
+          : String(answer).trim().toLowerCase(),
+      );
+      const isCorrect =
+        normalizedAnswer.length > 0 &&
+        normalizedAccepted.includes(normalizedAnswer);
+
+      console.log(
+        `📝 Ответ ${isCorrect ? "✅ ПРАВИЛЬНЫЙ" : "❌ НЕПРАВИЛЬНЫЙ"}`,
+      );
+      setQuizResult(isCorrect);
+      return;
+    }
+
+    const selectedAnswer = quizAnswers[currentQuiz.quizKey] ?? quizAnswer;
+    if (selectedAnswer === null || selectedAnswer === undefined) return;
+
+    const isCorrect = selectedAnswer === currentQuiz.correct_index;
     console.log(`📝 Ответ ${isCorrect ? "✅ ПРАВИЛЬНЫЙ" : "❌ НЕПРАВИЛЬНЫЙ"}`);
     setQuizResult(isCorrect);
 
@@ -236,6 +308,28 @@ const VideoPlayer = ({ videoUrl, segments, taskId }) => {
     );
   };
 
+  const quizTranslation = getCurrentQuizTranslation();
+  const acceptedShortAnswers = Array.isArray(quizTranslation?.short_answers)
+    ? quizTranslation.short_answers
+    : [];
+  const isShortAnswer =
+    currentQuiz?.type === "short_answer" || acceptedShortAnswers.length > 0;
+
+  const selectedAnswer =
+    currentQuiz &&
+    Object.prototype.hasOwnProperty.call(quizAnswers, currentQuiz.quizKey)
+      ? quizAnswers[currentQuiz.quizKey]
+      : quizAnswer;
+
+  const selectedShortAnswer =
+    currentQuiz &&
+    Object.prototype.hasOwnProperty.call(
+      shortAnswerAnswers,
+      currentQuiz.quizKey,
+    )
+      ? shortAnswerAnswers[currentQuiz.quizKey]
+      : shortAnswerInput;
+
   const closeQuiz = () => {
     const quizTranslation = getCurrentQuizTranslation();
     console.log(`❌ Квиз "${quizTranslation?.question}" закрыт/пропущен`);
@@ -244,6 +338,7 @@ const VideoPlayer = ({ videoUrl, segments, taskId }) => {
     setShowQuiz(false);
     setCurrentQuiz(null);
     setQuizAnswer(null);
+    setShortAnswerInput("");
     setQuizResult(null);
 
     videoRef.current?.play();
@@ -317,31 +412,51 @@ const VideoPlayer = ({ videoUrl, segments, taskId }) => {
                   {getCurrentQuizTranslation()?.question}
                 </p>
 
-                <div className="quiz-overlay-options">
-                  {getCurrentQuizTranslation()?.options.map((option, index) => (
-                    <button
-                      key={index}
-                      className={`quiz-overlay-option ${
-                        quizAnswer === index ? "selected" : ""
-                      } ${
-                        quizResult !== null
-                          ? index === currentQuiz.correct_index
-                            ? "correct"
-                            : quizAnswer === index
-                              ? "incorrect"
-                              : ""
-                          : ""
-                      }`}
-                      onClick={() => handleQuizAnswer(index)}
+                {isShortAnswer ? (
+                  <div className="quiz-overlay-short-answer">
+                    <input
+                      type="text"
+                      className="quiz-short-answer-input"
+                      placeholder="Type your answer"
+                      value={selectedShortAnswer}
+                      onChange={(event) =>
+                        handleShortAnswerChange(event.target.value)
+                      }
                       disabled={quizResult !== null}
-                    >
-                      <span className="option-letter">
-                        {String.fromCharCode(65 + index)}
-                      </span>
-                      <span className="option-text">{option}</span>
-                    </button>
-                  ))}
-                </div>
+                    />
+                    {quizResult !== null && acceptedShortAnswers.length > 0 && (
+                      <div className="quiz-short-answer-accepted">
+                        Accepted answers: {acceptedShortAnswers.join(", ")}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="quiz-overlay-options">
+                    {quizTranslation?.options.map((option, index) => (
+                      <button
+                        key={index}
+                        className={`quiz-overlay-option ${
+                          selectedAnswer === index ? "selected" : ""
+                        } ${
+                          quizResult !== null
+                            ? index === currentQuiz.correct_index
+                              ? "correct"
+                              : selectedAnswer === index
+                                ? "incorrect"
+                                : ""
+                            : ""
+                        }`}
+                        onClick={() => handleQuizAnswer(index)}
+                        disabled={quizResult !== null}
+                      >
+                        <span className="option-letter">
+                          {String.fromCharCode(65 + index)}
+                        </span>
+                        <span className="option-text">{option}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {quizResult !== null && (
                   <div
@@ -381,15 +496,25 @@ const VideoPlayer = ({ videoUrl, segments, taskId }) => {
                             d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
                           />
                         </svg>
-                        <span>
-                          Incorrect. The correct answer is{" "}
-                          {String.fromCharCode(65 + currentQuiz.correct_index)}:{" "}
-                          {
-                            getCurrentQuizTranslation()?.options[
-                              currentQuiz.correct_index
-                            ]
-                          }
-                        </span>
+                        {isShortAnswer ? (
+                          <span>
+                            Incorrect. Accepted answers:{" "}
+                            {acceptedShortAnswers.join(", ")}
+                          </span>
+                        ) : (
+                          <span>
+                            Incorrect. The correct answer is{" "}
+                            {String.fromCharCode(
+                              65 + currentQuiz.correct_index,
+                            )}
+                            :{" "}
+                            {
+                              quizTranslation?.options[
+                                currentQuiz.correct_index
+                              ]
+                            }
+                          </span>
+                        )}
                       </>
                     )}
                   </div>
@@ -417,7 +542,13 @@ const VideoPlayer = ({ videoUrl, segments, taskId }) => {
                     <button
                       className="quiz-overlay-button primary"
                       onClick={submitQuizAnswer}
-                      disabled={quizAnswer === null}
+                      disabled={
+                        isShortAnswer
+                          ? !selectedShortAnswer ||
+                            selectedShortAnswer.trim().length === 0
+                          : selectedAnswer === null ||
+                            selectedAnswer === undefined
+                      }
                     >
                       Submit Answer
                     </button>

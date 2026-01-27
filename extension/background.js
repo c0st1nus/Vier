@@ -10,7 +10,7 @@ console.log("========================================");
 console.log("BACKGROUND.JS LOADED");
 console.log("========================================");
 
-const DEFAULT_BACKEND_URL = "http://16.171.11.38:2135";
+const DEFAULT_BACKEND_URL = "http://16.170.208.132:2135";
 
 const state = {
   backendUrl: DEFAULT_BACKEND_URL,
@@ -52,9 +52,9 @@ async function loadStoredState() {
   state.user = stored.user || null;
   const storedBackend = stored.backend_url;
   if (storedBackend && storedBackend.includes("localhost")) {
-    state.backendUrl = "http://16.171.11.38:2135";
+    state.backendUrl = "http://16.170.208.132:2135";
     await chrome.storage.local.set({
-      backend_url: "http://16.171.11.38:2135",
+      backend_url: "http://16.170.208.132:2135",
     });
   } else {
     state.backendUrl = storedBackend || DEFAULT_BACKEND_URL;

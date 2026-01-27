@@ -8,7 +8,7 @@ import React, {
   useState,
 } from "react";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://16.171.11.38:2135";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://16.170.208.132:2135";
 
 const AuthContext = createContext(null);
 

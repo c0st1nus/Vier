@@ -45,6 +45,8 @@ export const getQuizTranslation = (quiz, language) => {
     return {
       question: quiz?.question || "Question?",
       options: quiz?.options || ["A", "B", "C", "D"],
+      short_answers: quiz?.short_answers || null,
+      answer_case_sensitive: !!quiz?.answer_case_sensitive,
       explanation: quiz?.explanation || null,
     };
   }
@@ -55,6 +57,8 @@ export const getQuizTranslation = (quiz, language) => {
     return {
       question: "Question not available",
       options: ["A", "B", "C", "D"],
+      short_answers: null,
+      answer_case_sensitive: false,
       explanation: null,
     };
   }
@@ -62,6 +66,8 @@ export const getQuizTranslation = (quiz, language) => {
   return {
     question: translation.question || "Question?",
     options: translation.options || ["A", "B", "C", "D"],
+    short_answers: translation.short_answers || null,
+    answer_case_sensitive: !!translation.answer_case_sensitive,
     explanation: translation.explanation || null,
   };
 };
@@ -116,7 +122,7 @@ export const getAvailableLanguages = (data) => {
   }
 
   return Object.keys(data.translations).filter(
-    (lang) => lang === "ru" || lang === "en" || lang === "kk"
+    (lang) => lang === "ru" || lang === "en" || lang === "kk",
   );
 };
 
@@ -128,7 +134,7 @@ export const getAvailableLanguages = (data) => {
  */
 export const hasAllLanguages = (
   data,
-  requiredLanguages = ["ru", "en", "kk"]
+  requiredLanguages = ["ru", "en", "kk"],
 ) => {
   if (!hasMultilingualSupport(data)) {
     return false;

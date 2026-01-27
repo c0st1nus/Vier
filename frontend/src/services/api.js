@@ -53,7 +53,7 @@ class ApiService {
         reject(new Error("Upload aborted"));
       });
 
-      xhr.open("POST", `${this.baseUrl}/api/video/upload/file`);
+      xhr.open("POST", `${this.baseUrl}/api/upload/file`);
       xhr.send(formData);
     });
   }

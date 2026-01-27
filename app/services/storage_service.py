@@ -213,7 +213,7 @@ class StorageService:
         """
         if not settings.S3_ENABLED:
             # Return local API endpoint
-            return f"http://16.171.11.38:2135/api/video/file/{object_key}"
+            return f"http://16.170.208.132:2135/api/video/file/{object_key}"
 
         try:
             expiry = expiry_seconds or self.signed_url_expiry
@@ -267,7 +267,7 @@ class StorageService:
             Public URL string
         """
         if not settings.S3_ENABLED:
-            return f"http://16.171.11.38:2135/api/video/file/{object_key}"
+            return f"http://16.170.208.132:2135/api/video/file/{object_key}"
 
         if self.public_url:
             return f"{self.public_url.rstrip('/')}/{self.bucket_name}/{object_key}"

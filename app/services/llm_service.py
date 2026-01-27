@@ -313,11 +313,12 @@ Summary: {segment_info.get("summary", "")}
 Content:
 {transcript_text[:1500]}
 
-Task: Create {settings.QUIZZES_PER_SEGMENT} multiple-choice questions. For EACH question, provide translations in ALL THREE languages.
+Task: Create {settings.QUIZZES_PER_SEGMENT} multiple-choice questions AND {settings.SHORT_ANSWER_QUIZZES_PER_SEGMENT} short-answer questions. For EACH question, provide translations in ALL THREE languages.
 
 Format as JSON array with this EXACT structure:
 [
   {{
+    "type": "multiple_choice",
     "translations": {{
       "ru": {{
         "question": "Вопрос на русском?",
@@ -336,10 +337,36 @@ Format as JSON array with this EXACT structure:
       }}
     }},
     "correct_index": 1
+  }},
+  {{
+    "type": "short_answer",
+    "translations": {{
+      "ru": {{
+        "question": "Короткий вопрос на русском?",
+        "short_answers": ["правильный ответ", "короткий вариант"],
+        "answer_case_sensitive": false,
+        "explanation": "Объяснение на русском"
+      }},
+      "en": {{
+        "question": "Short answer question in English?",
+        "short_answers": ["correct answer", "short variant"],
+        "answer_case_sensitive": false,
+        "explanation": "Explanation in English"
+      }},
+      "kk": {{
+        "question": "Қысқа жауап сұрағы?",
+        "short_answers": ["дұрыс жауап", "қысқа нұсқа"],
+        "answer_case_sensitive": false,
+        "explanation": "Қазақ тіліндегі түсініктеме"
+      }}
+    }}
   }}
 ]
 
-IMPORTANT: All three translations must have the SAME correct_index!
+IMPORTANT:
+- All three translations must have the SAME correct_index for multiple_choice
+- short_answer questions MUST NOT include correct_index or options
+- short_answer must include short_answers array per language
 
 Response:"""
 
@@ -357,9 +384,18 @@ Response:"""
 
             # Convert to Quiz objects
             quizzes = []
-            for item in quiz_data[: settings.QUIZZES_PER_SEGMENT]:
+            total_mc = settings.QUIZZES_PER_SEGMENT
+            total_short = settings.SHORT_ANSWER_QUIZZES_PER_SEGMENT
+            target_total = total_mc + total_short
+            mc_count = 0
+            short_count = 0
+
+            for item in quiz_data:
+                if len(quizzes) >= target_total:
+                    break
                 try:
                     translations_data = item.get("translations", {})
+                    item_type = item.get("type", "multiple_choice")
 
                     # Validate that we have all three languages
                     if not all(
@@ -368,21 +404,63 @@ Response:"""
                         logger.warning("Missing language translations, skipping quiz")
                         continue
 
-                    translations = {}
-                    for lang in ["ru", "en", "kk"]:
-                        trans = translations_data[lang]
-                        translations[lang] = QuizTranslation(
-                            question=trans.get("question", "Question?"),
-                            options=trans.get("options", ["A", "B", "C", "D"]),
-                            explanation=trans.get("explanation"),
-                        )
+                    if (
+                        item_type == QuizType.SHORT_ANSWER.value
+                        or item_type == "short_answer"
+                    ):
+                        if short_count >= total_short:
+                            continue
 
-                    quiz = Quiz(
-                        translations=translations,
-                        correct_index=item.get("correct_index", 0),
-                        type=QuizType.MULTIPLE_CHOICE,
-                    )
-                    quizzes.append(quiz)
+                        translations = {}
+                        for lang in ["ru", "en", "kk"]:
+                            trans = translations_data[lang] or {}
+                            translations[lang] = QuizTranslation(
+                                question=trans.get("question", "Question?"),
+                                short_answers=trans.get("short_answers"),
+                                answer_case_sensitive=bool(
+                                    trans.get("answer_case_sensitive", False)
+                                ),
+                                explanation=trans.get("explanation"),
+                            )
+
+                        if not any(
+                            (translations[lang].short_answers or [])
+                            for lang in ["ru", "en", "kk"]
+                        ):
+                            logger.warning("Missing short_answers, skipping quiz")
+                            continue
+
+                        quiz = Quiz(
+                            translations=translations,
+                            correct_index=None,
+                            type=QuizType.SHORT_ANSWER,
+                        )
+                        quizzes.append(quiz)
+                        short_count += 1
+                    else:
+                        if mc_count >= total_mc:
+                            continue
+
+                        if item.get("correct_index") is None:
+                            logger.warning("Missing correct_index, skipping quiz")
+                            continue
+
+                        translations = {}
+                        for lang in ["ru", "en", "kk"]:
+                            trans = translations_data[lang] or {}
+                            translations[lang] = QuizTranslation(
+                                question=trans.get("question", "Question?"),
+                                options=trans.get("options", ["A", "B", "C", "D"]),
+                                explanation=trans.get("explanation"),
+                            )
+
+                        quiz = Quiz(
+                            translations=translations,
+                            correct_index=item.get("correct_index", 0),
+                            type=QuizType.MULTIPLE_CHOICE,
+                        )
+                        quizzes.append(quiz)
+                        mc_count += 1
                 except Exception as e:
                     logger.warning(f"Skipping invalid multilingual quiz: {e}")
                     continue
@@ -693,13 +771,45 @@ Response:"""
             ),
         }
 
-        return [
+        quizzes = [
             Quiz(
                 translations=translations,
                 correct_index=0,
                 type=QuizType.MULTIPLE_CHOICE,
             )
         ]
+
+        if settings.SHORT_ANSWER_QUIZZES_PER_SEGMENT > 0:
+            short_translations = {
+                "ru": QuizTranslation(
+                    question=f"Назовите ключевую тему сегмента про {topic}.",
+                    short_answers=[topic],
+                    answer_case_sensitive=False,
+                    explanation=f"Ключевая тема сегмента — {topic}.",
+                ),
+                "en": QuizTranslation(
+                    question=f"Name the key topic of the segment about {topic}.",
+                    short_answers=[topic],
+                    answer_case_sensitive=False,
+                    explanation=f"The key topic of the segment is {topic}.",
+                ),
+                "kk": QuizTranslation(
+                    question=f"{topic} туралы сегменттің негізгі тақырыбын атаңыз.",
+                    short_answers=[topic],
+                    answer_case_sensitive=False,
+                    explanation=f"Сегменттің негізгі тақырыбы — {topic}.",
+                ),
+            }
+
+            quizzes.append(
+                Quiz(
+                    translations=short_translations,
+                    correct_index=None,
+                    type=QuizType.SHORT_ANSWER,
+                )
+            )
+
+        return quizzes
 
     def _create_fallback_quizzes(self, segment_info: dict) -> List[Quiz]:
         """Create simple fallback quizzes (uses multilingual version)"""

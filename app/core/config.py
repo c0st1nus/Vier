@@ -158,6 +158,7 @@ class LaptopSettings(BaseAppSettings):
 
     # Quiz generation settings
     QUIZZES_PER_SEGMENT: int = 2
+    SHORT_ANSWER_QUIZZES_PER_SEGMENT: int = 1
     QUIZ_OPTIONS_COUNT: int = 4
     QUIZ_BATCH_SIZE: int = 1  # Generate one quiz at a time
 
@@ -216,6 +217,7 @@ class ProductionSettings(BaseAppSettings):
 
     # Quiz generation settings
     QUIZZES_PER_SEGMENT: int = 3  # More quizzes per segment
+    SHORT_ANSWER_QUIZZES_PER_SEGMENT: int = 1
     QUIZ_OPTIONS_COUNT: int = 4
     QUIZ_BATCH_SIZE: int = 5  # Batch generate quizzes
 
@@ -274,6 +276,7 @@ class CustomSettings(BaseAppSettings):
 
     # Quiz generation settings
     QUIZZES_PER_SEGMENT: int = 2
+    SHORT_ANSWER_QUIZZES_PER_SEGMENT: int = 1
     QUIZ_OPTIONS_COUNT: int = 4
     QUIZ_BATCH_SIZE: int = 1
 

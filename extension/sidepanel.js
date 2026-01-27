@@ -58,7 +58,7 @@
   console.log("========================================");
 
   let state = {
-    backendUrl: "http://16.171.11.38:2135",
+    backendUrl: "http://16.170.208.132:2135",
     language: "en",
     enabled: true,
     user: null,

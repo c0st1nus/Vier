@@ -462,6 +462,39 @@
     margin-bottom: var(--spacing-md);
 }
 
+.quiz-short-answer {
+    margin-bottom: var(--spacing-md);
+}
+
+.quiz-short-answer-input {
+    width: 100%;
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: white;
+    border: 2px solid var(--border-light);
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+    color: var(--text-primary);
+    transition: all var(--transition-base);
+}
+
+.quiz-short-answer-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: var(--gray-50);
+}
+
+.quiz-short-answer-input:disabled {
+    background: var(--gray-100);
+    color: var(--text-secondary);
+    cursor: default;
+}
+
+.quiz-short-answer-accepted {
+    margin-top: var(--spacing-sm);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
 .quiz-option {
     display: flex;
     align-items: center;

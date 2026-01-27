@@ -13,6 +13,7 @@ const ResultsPage = ({ segments, videoUrl, taskId, onReset }) => {
   const [viewMode, setViewMode] = useState("video"); // 'video' or 'quiz'
   const [expandedSegments, setExpandedSegments] = useState(new Set([0]));
   const [answers, setAnswers] = useState({});
+  const [shortAnswers, setShortAnswers] = useState({});
   const [showResults, setShowResults] = useState({});
 
   // Toggle segment expansion
@@ -32,6 +33,14 @@ const ResultsPage = ({ segments, videoUrl, taskId, onReset }) => {
     setAnswers((prev) => ({
       ...prev,
       [key]: answerIndex,
+    }));
+  };
+
+  const handleShortAnswerInput = (segmentIndex, quizIndex, value) => {
+    const key = `${segmentIndex}-${quizIndex}`;
+    setShortAnswers((prev) => ({
+      ...prev,
+      [key]: value,
     }));
   };
 
@@ -65,7 +74,45 @@ const ResultsPage = ({ segments, videoUrl, taskId, onReset }) => {
       quizzes.forEach((quiz, quizIndex) => {
         totalQuizzes++;
         const key = `${segIndex}-${quizIndex}`;
-        if (answers[key] !== undefined) {
+
+        const translations = quiz.translations || null;
+        const langTranslation =
+          (translations && (translations[language] || translations.ru)) ||
+          (translations ? translations[Object.keys(translations)[0]] : null);
+        const acceptedShortAnswers =
+          (langTranslation && langTranslation.short_answers) ||
+          quiz.short_answers ||
+          [];
+        const isShortAnswer =
+          quiz.type === "short_answer" ||
+          (Array.isArray(acceptedShortAnswers) &&
+            acceptedShortAnswers.length > 0);
+
+        if (isShortAnswer) {
+          const userAnswer = shortAnswers[key];
+          if (userAnswer && userAnswer.trim().length > 0) {
+            answeredQuizzes++;
+            const caseSensitive = !!(
+              langTranslation && langTranslation.answer_case_sensitive
+            );
+            const normalizedAnswer = caseSensitive
+              ? userAnswer.trim()
+              : userAnswer.trim().toLowerCase();
+            const normalizedAccepted = Array.isArray(acceptedShortAnswers)
+              ? acceptedShortAnswers.map((answer) =>
+                  caseSensitive
+                    ? String(answer).trim()
+                    : String(answer).trim().toLowerCase(),
+                )
+              : [];
+            if (
+              normalizedAnswer.length > 0 &&
+              normalizedAccepted.includes(normalizedAnswer)
+            ) {
+              correctAnswers++;
+            }
+          }
+        } else if (answers[key] !== undefined) {
           answeredQuizzes++;
           if (answers[key] === quiz.correct_index) {
             correctAnswers++;
@@ -418,16 +465,49 @@ const ResultsPage = ({ segments, videoUrl, taskId, onReset }) => {
                       {segment.quizzes.map((quiz, quizIndex) => {
                         const key = `${segmentIndex}-${quizIndex}`;
                         const selectedAnswer = answers[key];
-                        const isAnswered = selectedAnswer !== undefined;
+                        const shortAnswerValue = shortAnswers[key] ?? "";
                         const showResult = showResults[key];
-                        const isCorrect =
-                          isAnswered && selectedAnswer === quiz.correct_index;
 
                         // Get quiz translation for current language
                         const quizTranslation = getQuizTranslation(
                           quiz,
                           language,
                         );
+
+                        const isShortAnswer =
+                          quiz.type === "short_answer" ||
+                          (quizTranslation.short_answers &&
+                            quizTranslation.short_answers.length > 0);
+
+                        const isAnswered = isShortAnswer
+                          ? shortAnswerValue.trim().length > 0
+                          : selectedAnswer !== undefined;
+
+                        const answerCaseSensitive =
+                          !!quizTranslation.answer_case_sensitive;
+                        const normalizedShortAnswer = answerCaseSensitive
+                          ? shortAnswerValue.trim()
+                          : shortAnswerValue.trim().toLowerCase();
+                        const acceptedShortAnswers = Array.isArray(
+                          quizTranslation.short_answers,
+                        )
+                          ? quizTranslation.short_answers
+                          : [];
+                        const normalizedAcceptedShortAnswers =
+                          answerCaseSensitive
+                            ? acceptedShortAnswers.map((answer) =>
+                                answer.trim(),
+                              )
+                            : acceptedShortAnswers.map((answer) =>
+                                answer.trim().toLowerCase(),
+                              );
+
+                        const isCorrect = isShortAnswer
+                          ? normalizedShortAnswer.length > 0 &&
+                            normalizedAcceptedShortAnswers.includes(
+                              normalizedShortAnswer,
+                            )
+                          : isAnswered && selectedAnswer === quiz.correct_index;
 
                         return (
                           <div key={quizIndex} className="quiz-card">
@@ -484,77 +564,106 @@ const ResultsPage = ({ segments, videoUrl, taskId, onReset }) => {
                               {quizTranslation.question}
                             </p>
 
-                            <div className="quiz-options">
-                              {quizTranslation.options.map(
-                                (option, optionIndex) => {
-                                  const isSelected =
-                                    selectedAnswer === optionIndex;
-                                  const isCorrectOption =
-                                    optionIndex === quiz.correct_index;
-                                  const showCorrect =
-                                    showResult && isCorrectOption;
-                                  const showIncorrect =
-                                    showResult &&
-                                    isSelected &&
-                                    !isCorrectOption;
+                            {isShortAnswer ? (
+                              <div className="quiz-short-answer">
+                                <input
+                                  type="text"
+                                  className="quiz-short-answer-input"
+                                  placeholder="Type your answer"
+                                  value={shortAnswerValue}
+                                  onChange={(event) =>
+                                    handleShortAnswerInput(
+                                      segmentIndex,
+                                      quizIndex,
+                                      event.target.value,
+                                    )
+                                  }
+                                  disabled={showResult}
+                                />
+                                {showResult &&
+                                  quizTranslation.short_answers &&
+                                  quizTranslation.short_answers.length > 0 && (
+                                    <div className="quiz-short-answer-accepted">
+                                      Accepted answers:{" "}
+                                      {quizTranslation.short_answers.join(", ")}
+                                    </div>
+                                  )}
+                              </div>
+                            ) : (
+                              <div className="quiz-options">
+                                {quizTranslation.options.map(
+                                  (option, optionIndex) => {
+                                    const isSelected =
+                                      selectedAnswer === optionIndex;
+                                    const isCorrectOption =
+                                      optionIndex === quiz.correct_index;
+                                    const showCorrect =
+                                      showResult && isCorrectOption;
+                                    const showIncorrect =
+                                      showResult &&
+                                      isSelected &&
+                                      !isCorrectOption;
 
-                                  return (
-                                    <button
-                                      key={optionIndex}
-                                      className={`quiz-option ${isSelected ? "selected" : ""} ${showCorrect ? "correct" : ""} ${showIncorrect ? "incorrect" : ""}`}
-                                      onClick={() =>
-                                        !showResult &&
-                                        handleAnswer(
-                                          segmentIndex,
-                                          quizIndex,
-                                          optionIndex,
-                                        )
-                                      }
-                                      disabled={showResult}
-                                    >
-                                      <span className="option-indicator">
-                                        {showCorrect ? (
-                                          <svg
-                                            width="20"
-                                            height="20"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke="currentColor"
-                                          >
-                                            <path
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                              strokeWidth="2"
-                                              d="M5 13l4 4L19 7"
-                                            />
-                                          </svg>
-                                        ) : showIncorrect ? (
-                                          <svg
-                                            width="20"
-                                            height="20"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke="currentColor"
-                                          >
-                                            <path
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                              strokeWidth="2"
-                                              d="M6 18L18 6M6 6l12 12"
-                                            />
-                                          </svg>
-                                        ) : (
-                                          String.fromCharCode(65 + optionIndex)
-                                        )}
-                                      </span>
-                                      <span className="option-text">
-                                        {option}
-                                      </span>
-                                    </button>
-                                  );
-                                },
-                              )}
-                            </div>
+                                    return (
+                                      <button
+                                        key={optionIndex}
+                                        className={`quiz-option ${isSelected ? "selected" : ""} ${showCorrect ? "correct" : ""} ${showIncorrect ? "incorrect" : ""}`}
+                                        onClick={() =>
+                                          !showResult &&
+                                          handleAnswer(
+                                            segmentIndex,
+                                            quizIndex,
+                                            optionIndex,
+                                          )
+                                        }
+                                        disabled={showResult}
+                                      >
+                                        <span className="option-indicator">
+                                          {showCorrect ? (
+                                            <svg
+                                              width="20"
+                                              height="20"
+                                              viewBox="0 0 24 24"
+                                              fill="none"
+                                              stroke="currentColor"
+                                            >
+                                              <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth="2"
+                                                d="M5 13l4 4L19 7"
+                                              />
+                                            </svg>
+                                          ) : showIncorrect ? (
+                                            <svg
+                                              width="20"
+                                              height="20"
+                                              viewBox="0 0 24 24"
+                                              fill="none"
+                                              stroke="currentColor"
+                                            >
+                                              <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth="2"
+                                                d="M6 18L18 6M6 6l12 12"
+                                              />
+                                            </svg>
+                                          ) : (
+                                            String.fromCharCode(
+                                              65 + optionIndex,
+                                            )
+                                          )}
+                                        </span>
+                                        <span className="option-text">
+                                          {option}
+                                        </span>
+                                      </button>
+                                    );
+                                  },
+                                )}
+                              </div>
+                            )}
 
                             {isAnswered && !showResult && (
                               <button

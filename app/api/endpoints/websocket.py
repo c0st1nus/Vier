@@ -1,5 +1,6 @@
 """WebSocket endpoint for real-time video processing updates."""
 
+import json
 import logging
 from typing import Annotated, Optional
 
@@ -65,9 +66,19 @@ async def video_updates(
         # Send initial connected event to this socket only
         await websocket.send_json(WSConnectedEvent(task_id=task_id).model_dump())
 
-        # Keep the connection alive; we don't expect meaningful messages from client
+        # Keep the connection alive; handle ping messages from client
         while True:
-            await websocket.receive_text()
+            message = await websocket.receive_text()
+            # Handle ping messages to keep connection alive
+            try:
+                data = json.loads(message)
+                if isinstance(data, dict) and data.get("type") == "ping":
+                    logger.debug("WebSocket ping received for task_id=%s", task_id)
+                    # Send pong response
+                    await websocket.send_json({"type": "pong"})
+            except Exception:  # noqa: BLE001
+                # Ignore parse errors for ping messages
+                pass
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected for task_id=%s", task_id)

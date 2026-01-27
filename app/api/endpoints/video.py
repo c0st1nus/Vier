@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -121,15 +121,34 @@ async def get_video_file(task_id: str, db: AsyncSession = Depends(get_db)):
     try:
         logger.info(f"Fetching video file for task: {task_id}")
 
-        # Get task from database
-        task_service = TaskService(db)
-        db_task = await task_service.get_task(task_id)
+        # Try to get from new Video model first
+        from uuid import UUID
 
-        if not db_task:
-            logger.error(f"Task not found in database: {task_id}")
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+        from sqlalchemy import select
 
-        video_path = db_task.video_path
+        from app.db.models import Video
+
+        video_path = None
+        try:
+            task_uuid = UUID(task_id)
+            result = await db.execute(select(Video).where(Video.task_id == task_uuid))
+            video = result.scalar_one_or_none()
+            if video:
+                video_path = video.file_path
+                logger.info(f"Found video in Video model: {video_path}")
+        except (ValueError, Exception) as e:
+            logger.debug(f"Not found in Video model or invalid UUID: {e}")
+
+        # Fallback to old Task model
+        if not video_path:
+            task_service = TaskService(db)
+            db_task = await task_service.get_task(task_id)
+            if db_task:
+                video_path = db_task.video_path
+                logger.info(f"Found video in Task model: {video_path}")
+            else:
+                logger.error(f"Task not found in database: {task_id}")
+                raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
         if not video_path:
             logger.error(f"No video path for task {task_id}")
@@ -140,16 +159,36 @@ async def get_video_file(task_id: str, db: AsyncSession = Depends(get_db)):
         # If S3 is enabled and path looks like S3 key
         if settings.S3_ENABLED and not video_path.startswith("/"):
             try:
-                # Generate signed URL for S3 object
-                signed_url = await storage_service.get_signed_url(
-                    video_path, expires_in=3600
-                )
-                logger.info(f"Generated signed URL for task {task_id}")
+                # Stream video from S3 through FastAPI
+                logger.info(f"Streaming video from S3: {video_path}")
 
-                # Redirect to signed URL
-                return RedirectResponse(url=signed_url)
+                # Detect media type from extension
+                ext = Path(video_path).suffix.lower()
+                media_type_map = {
+                    ".mp4": "video/mp4",
+                    ".avi": "video/x-msvideo",
+                    ".mov": "video/quicktime",
+                    ".mkv": "video/x-matroska",
+                    ".webm": "video/webm",
+                    ".flv": "video/x-flv",
+                }
+                media_type = media_type_map.get(ext, "video/mp4")
+
+                # Get file from S3 and stream it
+                async def stream_from_s3():
+                    async for chunk in storage_service.stream_file(video_path):
+                        yield chunk
+
+                return StreamingResponse(
+                    stream_from_s3(),
+                    media_type=media_type,
+                    headers={
+                        "Accept-Ranges": "bytes",
+                        "Cache-Control": "public, max-age=3600",
+                    },
+                )
             except Exception as e:
-                logger.error(f"Failed to generate signed URL: {e}")
+                logger.error(f"Failed to stream from S3: {e}")
                 # Fall back to local file if available
 
         # Local file serving

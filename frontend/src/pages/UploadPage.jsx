@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "../contexts/LanguageContext";
 import "./UploadPage.css";
 
-const API_BASE_URL = "http://16.171.11.38:2135/api";
+const API_BASE_URL = "http://16.170.208.132:2135/api";
 
 const UploadPage = () => {
   const navigate = useNavigate();

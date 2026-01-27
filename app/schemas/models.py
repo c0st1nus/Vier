@@ -36,6 +36,7 @@ class QuizType(str, Enum):
 
     MULTIPLE_CHOICE = "multiple_choice"
     TRUE_FALSE = "true_false"
+    SHORT_ANSWER = "short_answer"
 
 
 # Request models
@@ -88,7 +89,15 @@ class QuizTranslation(BaseModel):
     """Translation for a single language"""
 
     question: str = Field(..., description="Quiz question text")
-    options: List[str] = Field(..., min_items=2, max_items=4)
+    options: Optional[List[str]] = Field(
+        None, description="Answer options for multiple choice"
+    )
+    short_answers: Optional[List[str]] = Field(
+        None, description="Accepted short answers for this language"
+    )
+    answer_case_sensitive: bool = Field(
+        default=False, description="Whether short answer matching is case-sensitive"
+    )
     explanation: Optional[str] = Field(
         None, description="Explanation for the correct answer"
     )
@@ -100,8 +109,8 @@ class Quiz(BaseModel):
     translations: Dict[str, QuizTranslation] = Field(
         ..., description="Translations for different languages (ru, en, kk)"
     )
-    correct_index: int = Field(
-        ..., ge=0, description="Index of correct answer (0-based)"
+    correct_index: Optional[int] = Field(
+        None, ge=0, description="Index of correct answer (0-based)"
     )
     type: QuizType = Field(default=QuizType.MULTIPLE_CHOICE)
 
@@ -114,7 +123,10 @@ class Quiz(BaseModel):
     @property
     def options(self) -> List[str]:
         """Get options in Russian (default language)"""
-        return self.translations.get("ru", list(self.translations.values())[0]).options
+        options = self.translations.get(
+            "ru", list(self.translations.values())[0]
+        ).options
+        return options or []
 
     @property
     def explanation(self) -> Optional[str]:
